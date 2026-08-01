@@ -1,22 +1,17 @@
-"""
-agent_schema.py
-Data structures for Multi-Agent Negotiation Simulator.
-"""
-
 from dataclasses import dataclass, field
-from typing import List, Dict, Any, Optional
+from typing import List, Optional
 
 @dataclass
 class PersonalityTraits:
-    aggression: float       # 0.0 to 1.0
-    flexibility: float      # 0.0 to 1.0
-    patience: float         # 0.0 to 1.0
+    aggression: float
+    flexibility: float
+    patience: float
 
 @dataclass
 class NegotiationObjectives:
     primary_goal: str
     target_value: float
-    reservation_value: float  # Walk-away point
+    reservation_value: float
     secondary_goals: List[str] = field(default_factory=list)
 
 @dataclass
@@ -24,14 +19,8 @@ class AgentPersona:
     agent_id: str
     name: str
     role: str
-    personality_type: str    # "aggressive", "collaborative", or "risk-averse"
+    personality_type: str  # e.g., "collaborative", "risk-averse", "aggressive"
     traits: PersonalityTraits
     objectives: NegotiationObjectives
-    constraints: List[str]
-
-@dataclass
-class NegotiationScenario:
-    scenario_id: str
-    title: str
-    description: str
-    agents: List[AgentPersona]
+    constraints: List[str] = field(default_factory=list)
+    voice_id: str = "alloy"  # Voice selection for Text-to-Speech (TTS)
