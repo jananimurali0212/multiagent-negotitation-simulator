@@ -1,35 +1,35 @@
 from agent_schema import AgentPersona
+from scenarios import NegotiationScenario
 
 def build_voice_enabled_prompt(
-    agent: AgentPersona, 
-    partner_role: str, 
-    scenario_description: str,
-    user_speech_transcript: str
+    agent: AgentPersona,
+    scenario: NegotiationScenario,
+    user_stt_transcript: str
 ) -> str:
-    # Format target and reservation values safely beforehand
     target_val = f"{agent.objectives.target_value:.2f}"
     reservation_val = f"{agent.objectives.reservation_value:.2f}"
 
     prompt = f"""You are an AI negotiator acting as the {agent.role} in a voice-based negotiation simulation.
-You are negotiating with the {partner_role}.
+You are negotiating with the {scenario.user_role}.
 
-=================== NEGOTIATION SCENARIO CONTEXT ===================
-{scenario_description}
+=================== SCENARIO CONTEXT ===================
+Scenario: {scenario.title}
+Description: {scenario.description}
 
-=================== AGENT PERSONALITY & STRATEGY ===================
-- Selected Mode: {agent.personality_type.upper()}
-- Target Deal Value: ${target_val}
-- Reservation Value (Walkaway): ${reservation_val}
+=================== AGENT STRATEGY & MODE ===================
+- Mode: {agent.personality_type.upper()}
+- Target Value: ${target_val}
+- Reservation Price (Walkaway): ${reservation_val}
 
-=================== LATEST SPOKEN INPUT FROM USER (STT) ===================
-User Said: "{user_speech_transcript}"
+=================== USER SPOKEN INPUT (STT TRANSCRIPT) ===================
+User Said: "{user_stt_transcript}"
 
 =================== OUTPUT REQUIREMENTS ===================
 1. Decide your action: ACCEPT, COUNTER, or REJECT.
-2. Provide a 'reasoning' trace for internal strategy.
-3. Generate a 'spoken_dialogue' response that will be read out loud by a Text-to-Speech engine:
-   - Make it clear, realistic, and conversational.
-   - Avoid special characters, bullet points, markdown formatting, or symbols.
-   - Write numbers out naturally (e.g., "fifty thousand dollars" or "$50,000").
+2. Provide internal 'reasoning' for logic tracking.
+3. Write a 'spoken_dialogue' response meant to be read aloud by Text-to-Speech (TTS):
+   - Keep it natural, realistic, and conversational.
+   - Do NOT use markdown, bullet points, or special symbols.
+   - Spell out monetary figures clearly.
 """
     return prompt

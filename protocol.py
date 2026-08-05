@@ -1,14 +1,15 @@
 from pydantic import BaseModel
 from typing import Optional, Literal
 
-class UserSpeechInput(BaseModel):
-    """Schema for processing incoming spoken user transcripts."""
-    raw_transcript: str
+class SpeechToTextInput(BaseModel):
+    """Schema for processing audio-transcribed text received from user STT."""
+    stt_transcript: str
+    audio_confidence: Optional[float] = 1.0
     extracted_price_offer: Optional[float] = None
 
 class AgentResponseProtocol(BaseModel):
-    """Schema for AI turn outputs optimized for Text-to-Speech (TTS)."""
+    """Schema for AI turn outputs ready for Text-to-Speech (TTS) synthesis."""
     action: Literal["ACCEPT", "COUNTER", "REJECT"]
     proposed_price: Optional[float] = None
     reasoning: str
-    spoken_dialogue: str  # Conversational text formatted specifically for TTS synthesis
+    spoken_dialogue: str  # Conversational text formatted cleanly for TTS audio synthesis

@@ -1,22 +1,21 @@
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Any
+from typing import List, Dict, Optional
 
 @dataclass
 class VoiceNegotiationState:
-    scenario_title: str
-    custom_scenario_text: str
+    scenario_id: str
     mode: str
     current_round: int = 1
     last_offered_price: Optional[float] = None
     transcript_history: List[Dict[str, str]] = field(default_factory=list)
 
-    def add_speech_turn(self, speaker: str, transcript: str, price_offer: Optional[float] = None):
-        if price_offer is not None:
-            self.last_offered_price = price_offer
-        
+    def add_speech_turn(self, speaker: str, stt_transcript: str, offer_price: Optional[float] = None):
+        if offer_price is not None:
+            self.last_offered_price = offer_price
+            
         self.transcript_history.append({
             "round": str(self.current_round),
             "speaker": speaker,
-            "transcript": transcript,
-            "price_offer": str(price_offer) if price_offer is not None else "N/A"
+            "transcript": stt_transcript,
+            "offer_price": str(offer_price) if offer_price is not None else "N/A"
         })

@@ -1,72 +1,67 @@
-from scenarios import create_user_scenario
+from scenarios import get_scenario
 from agent_schema import AgentPersona, PersonalityTraits, NegotiationObjectives
 from negotiation_state import VoiceNegotiationState
 from prompts import build_voice_enabled_prompt
-from protocol import AgentResponseProtocol
+from protocol import SpeechToTextInput, AgentResponseProtocol
 
-def run_test():
-    # 1. User inputs ANY custom scenario dynamically
-    user_scenario = create_user_scenario(
-        title="Freelance Web Development Contract",
-        description="Negotiating a custom web design project for a local coffee shop business.",
-        user_role="Business Owner",
-        agent_role="Freelance Developer",
-        starting_offer=3000.0,
-        target_price=5000.0,
-        reservation_price=4000.0
-    )
+def run_simulation():
+    # 1. Select scenario (job_offer, project_budget, vendor_pricing)
+    selected_scenario_id = "job_offer"
+    scenario = get_scenario(selected_scenario_id)
 
-    # 2. Selected mode
+    # 2. Select Agent Mode
     selected_mode = "collaborative"
 
     agent = AgentPersona(
         agent_id="agent_01",
-        name="Developer Agent",
-        role=user_scenario.agent_role,
+        name="Hiring Representative",
+        role=scenario.agent_role,
         personality_type=selected_mode,
         traits=PersonalityTraits(aggression=0.3, flexibility=0.7, patience=0.8),
         objectives=NegotiationObjectives(
-            primary_goal="Secure fair project pricing with timeline flexibility",
-            target_value=5000.0,
-            reservation_value=4000.0
+            primary_goal="Hire top tech candidate within budget bounds",
+            target_value=125000.0,
+            reservation_value=135000.0
         ),
-        voice_id="echo"
+        voice_id="alloy"
     )
 
-    # 3. Simulate Speech-to-Text (STT) input from the user
-    user_speech_transcript = "We really like your portfolio, but our budget is capped at thirty-five hundred dollars."
-
-    # 4. Initialize session state & record turn
-    state = VoiceNegotiationState(
-        scenario_title=user_scenario.title,
-        custom_scenario_text=user_scenario.description,
-        mode=selected_mode
+    # 3. Simulate incoming user Speech-to-Text (STT) transcript
+    stt_input = SpeechToTextInput(
+        stt_transcript="Thank you for the offer of one hundred ten thousand. Given my experience, I was hoping for one hundred thirty thousand dollars.",
+        extracted_price_offer=130000.0
     )
-    state.add_speech_turn(speaker=user_scenario.user_role, transcript=user_speech_transcript, price_offer=3500.0)
 
-    # 5. Build prompt
+    # 4. Initialize session state
+    state = VoiceNegotiationState(scenario_id=scenario.scenario_id, mode=selected_mode)
+    state.add_speech_turn(
+        speaker=scenario.user_role,
+        stt_transcript=stt_input.stt_transcript,
+        offer_price=stt_input.extracted_price_offer
+    )
+
+    # 5. Generate dynamic prompt
     prompt = build_voice_enabled_prompt(
         agent=agent,
-        partner_role=user_scenario.user_role,
-        scenario_description=f"{user_scenario.title}: {user_scenario.description}",
-        user_speech_transcript=user_speech_transcript
+        scenario=scenario,
+        user_stt_transcript=stt_input.stt_transcript
     )
 
-    print("=================== SYSTEM PROMPT GENERATED ===================")
+    print("=================== PROMPT GENERATED ===================")
     print(prompt)
 
-    # 6. Simulated structured response for Text-to-Speech (TTS)
-    simulated_response = AgentResponseProtocol(
+    # 6. Simulated Agent TTS output response
+    simulated_tts_response = AgentResponseProtocol(
         action="COUNTER",
-        proposed_price=4200.0,
-        reasoning="User offer of $3,500 is below $4,000 reservation price. Propose counter-offer at $4,200 with minor scope reduction.",
-        spoken_dialogue="I understand your budget constraints! Thirty-five hundred is a bit low for the full scope, but I can do forty-two hundred dollars if we simplify the initial page animations."
+        proposed_price=122000.0,
+        reasoning="Candidate asked for $130k. Offer middle ground at $122k with performance review option.",
+        spoken_dialogue="I completely understand where you are coming from. While one hundred thirty thousand is slightly above our base starting band, I can increase our offer to one hundred twenty-two thousand dollars with a performance review in six months."
     )
 
-    print("\n=================== SIMULATED AGENT RESPONSE ===================")
-    print(f"Action: {simulated_response.action}")
-    print(f"Selected TTS Voice: {agent.voice_id}")
-    print(f"Spoken Dialogue (TTS Output): {simulated_response.spoken_dialogue}")
+    print("\n=================== SIMULATED AI TTS RESPONSE ===================")
+    print(f"Action: {simulated_tts_response.action}")
+    print(f"Target Voice ID: {agent.voice_id}")
+    print(f"Spoken Response (TTS Ready): {simulated_tts_response.spoken_dialogue}")
 
 if __name__ == "__main__":
-    run_test()
+    run_simulation()
