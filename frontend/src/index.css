@@ -1,0 +1,77 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #1E2230;
+  --color-primary-dark: #141721;
+  
+  --color-secondary: #C86D51;
+  --color-secondary-dark: #B25E43;
+  
+  --color-accent: #3B82F6;
+  --color-accent-dark: #2563EB;
+  
+  --color-warmpearl: #FAFAFD;
+  --color-crispwhite: #FFFFFF;
+  --color-navyblack: #0F172A;
+  --color-slategray: #64748B;
+  
+  --font-sans: 'Inter', 'sans-serif';
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    font-family: 'Inter', sans-serif;
+  }
+  
+  body {
+    @apply bg-warmpearl text-navyblack font-sans antialiased;
+  }
+}
+
+/* Custom scrollbar styling for conversation flows */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94A3B8;
+}
+
+.workspace-container {
+  width: 100%;
+  max-width: 1480px;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 16px;
+  padding-right: 16px;
+}
+@media (min-width: 640px) {
+  .workspace-container {
+    padding-left: 20px;
+    padding-right: 20px;
+  }
+}
+@media (min-width: 768px) {
+  .workspace-container {
+    padding-left: 24px;
+    padding-right: 24px;
+  }
+}
+@media (min-width: 1024px) {
+  .workspace-container {
+    padding-left: 32px;
+    padding-right: 32px;
+  }
+}
+
