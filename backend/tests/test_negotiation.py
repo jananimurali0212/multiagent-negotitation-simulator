@@ -25,6 +25,9 @@ async def test_full_negotiation_simulation_lifecycle(client: AsyncClient, auth_h
     )
     assert start_res.status_code == 200
 
+    from app.orchestration.runner import stop_background_simulation
+    stop_background_simulation(session_id)
+
     # 3. Step turn execution loop until finished or deadlock
     max_steps = 15
     completed = False

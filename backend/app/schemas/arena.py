@@ -24,5 +24,7 @@ class TurnResultResponse(BaseModel):
     agreement_reached: bool = False
     final_terms: Optional[Dict[str, Any]] = None
     validation_error: Optional[str] = None
+    report_id: Optional[str] = None
+    report_status: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)

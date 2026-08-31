@@ -1,4 +1,5 @@
 import uuid
+from typing import Optional
 from datetime import datetime, timezone
 from sqlalchemy import String, Text, Integer, Boolean, DateTime, ForeignKey, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -51,6 +52,18 @@ class NegotiationSession(Base):
     agents = relationship("AgentConfiguration", back_populates="session", cascade="all, delete-orphan")
     messages = relationship("NegotiationMessage", back_populates="session", cascade="all, delete-orphan")
     report = relationship("OutcomeReport", back_populates="session", uselist=False, cascade="all, delete-orphan")
+
+    @property
+    def report_id(self) -> Optional[str]:
+        return self.report.id if self.report else None
+
+    @property
+    def report_status(self) -> str:
+        if self.report:
+            return "generated"
+        elif self.status in ["finished", "deadlock"]:
+            return "generating"
+        return "not_generated"
 
 
 class NegotiationMessage(Base):

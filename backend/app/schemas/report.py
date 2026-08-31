@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict
 class ReportResponse(BaseModel):
     id: str
     session_id: str
+    user_id: Optional[str] = None
     scenario_id: str
     scenario_title: str
     mode: str
@@ -15,6 +16,7 @@ class ReportResponse(BaseModel):
     metrics: Dict[str, Any]
     summary: str
     recommendations: str
+    analysis: Optional[Dict[str, Any]] = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

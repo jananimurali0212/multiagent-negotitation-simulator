@@ -27,6 +27,7 @@ async def _load_full_session(session_id: str, db: AsyncSession) -> NegotiationSe
             selectinload(NegotiationSession.agents).selectinload(AgentConfiguration.goals),
             selectinload(NegotiationSession.agents).selectinload(AgentConfiguration.constraints),
             selectinload(NegotiationSession.messages),
+            selectinload(NegotiationSession.report),
         )
     )
     result = await db.execute(stmt)

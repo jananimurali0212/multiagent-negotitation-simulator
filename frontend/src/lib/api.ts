@@ -125,6 +125,8 @@ export interface NegotiationStepResponse {
   agreement_reached: boolean;
   final_terms?: Record<string, any>;
   validation_error?: string;
+  report_id?: string;
+  report_status?: 'not_generated' | 'generating' | 'generated' | 'failed';
 }
 
 export type TurnResultResponse = NegotiationStepResponse;
@@ -217,6 +219,198 @@ export const dashboardApi = {
   getSummary: () => apiRequest<DashboardSummary>('/dashboard/summary'),
 };
 
+export interface TimelineEvent {
+  turn_index: number;
+  round: number;
+  sender: string;
+  role: string;
+  is_user: boolean;
+  action: string;
+  key_position: string;
+  offer?: Record<string, any>;
+  what_changed?: string | null;
+  reason?: string;
+}
+
+export interface ParameterProgression {
+  parameter: string;
+  progression: Array<{
+    round: number;
+    turn: number;
+    sender: string;
+    role: string;
+    value: string;
+    numeric_value?: number | null;
+  }>;
+  has_numeric_data: boolean;
+  reason?: string | null;
+}
+
+export interface OfferEvolutionData {
+  parameters: ParameterProgression[];
+  has_numeric_chart_data: boolean;
+  chart_data: Array<Record<string, any>>;
+  reason?: string | null;
+}
+
+export interface AgentConcessionInfo {
+  agent_name: string;
+  role: string;
+  concessions_count: number;
+  concession_moves: Array<{
+    round: number;
+    turn: number;
+    parameter: string;
+    previous_value: string;
+    new_value: string;
+    delta?: number | null;
+  }>;
+  direction: string;
+  largest_concession?: {
+    round: number;
+    turn: number;
+    parameter: string;
+    previous_value: string;
+    new_value: string;
+    delta?: number | null;
+  } | null;
+  concession_progress?: string | null;
+}
+
+export interface ConcessionAnalysisData {
+  total_concessions_detected: number;
+  agent_concessions: AgentConcessionInfo[];
+}
+
+export interface TurningPointEvent {
+  round: number;
+  turn: number;
+  agent: string;
+  what_happened: string;
+  why_it_mattered: string;
+  evidence: string;
+}
+
+export interface DetectedTechnique {
+  technique: string;
+  used_by: string;
+  evidence: string;
+  confidence: 'High' | 'Medium' | 'Low';
+}
+
+export interface StrategyAnalysisData {
+  techniques: DetectedTechnique[];
+  total_detected: number;
+}
+
+export interface AgentConfigurationSnapshot {
+  agent_id: string;
+  name: string;
+  role: string;
+  avatar?: string;
+  personality?: string;
+  experience?: string;
+  primary_goal: string;
+  goals: Array<{ text: string; priority: string }>;
+  hard_constraints: Array<{ label: string; value: string }>;
+  negotiable_parameters: Record<string, any>;
+  parameter_positions: Array<{
+    parameter: string;
+    initial_position: string;
+    final_position: string;
+  }>;
+}
+
+export interface ValidationCheck {
+  name: string;
+  description: string;
+  status: 'passed' | 'failed' | 'not_applicable';
+  evidence: string;
+}
+
+export interface ConfidenceAnalysisData {
+  confidence_score: number | null;
+  confidence_level: 'High Confidence' | 'Medium Confidence' | 'Low Confidence';
+  checks: ValidationCheck[];
+}
+
+export interface AgentScorecard {
+  agent_name: string;
+  role: string;
+  avatar?: string;
+  primary_objective: string;
+  initial_position: string;
+  final_position: string;
+  offers_made_count: number;
+  concessions_made_count: number;
+  detected_techniques: string[];
+  constraint_compliance: string;
+  outcome_contribution: string;
+}
+
+export interface ReportIntelligenceAnalysis {
+  overview?: {
+    scenario_title: string;
+    scenario_id: string;
+    scenario_objective: string;
+    mode: string;
+    outcome: string;
+    participants: Array<{ name: string; role: string; avatar?: string }>;
+    rounds_completed: number;
+    total_turns: number;
+    started_at?: string;
+    completed_at?: string;
+    duration: string;
+  };
+  configuration_snapshot?: AgentConfigurationSnapshot[];
+  negotiation_timeline?: TimelineEvent[];
+  offer_evolution?: OfferEvolutionData;
+  concession_analysis?: ConcessionAnalysisData;
+  turning_points?: TurningPointEvent[];
+  strategy_analysis?: StrategyAnalysisData;
+  agreement_analysis?: {
+    final_agreement_terms: Record<string, any>;
+    all_constraints_satisfied: boolean;
+    agent_compatibility: Array<{
+      agent_name: string;
+      role: string;
+      is_compatible: boolean;
+      notes: string;
+    }>;
+    how_agreement_reached: {
+      initial_gap: string;
+      negotiation_movement: string;
+      final_convergence: string;
+      acceptance_trigger: string;
+    };
+  } | null;
+  deadlock_analysis?: {
+    primary_conflict: string;
+    last_compatible_opportunity: string;
+    stagnation_evidence: string;
+    deadlock_cause: string;
+    conflicting_constraints: Array<{
+      agent: string;
+      label: string;
+      value: string;
+    }>;
+  } | null;
+  confidence_analysis?: ConfidenceAnalysisData;
+  agent_analysis?: AgentScorecard[];
+  metrics?: {
+    rounds_completed: number;
+    total_turns: number;
+    agreement_confidence?: number | null;
+    constraint_compliance_rate?: number;
+    concessions_detected?: number;
+    techniques_detected?: number;
+    [key: string]: any;
+  };
+  final_terms?: Record<string, any>;
+  summary?: string;
+  recommendations?: string;
+}
+
 // Outcome Reports API
 export interface OutcomeReport {
   id: string;
@@ -228,20 +422,28 @@ export interface OutcomeReport {
   rounds_completed: number;
   final_terms: Record<string, any>;
   metrics: {
-    agreementRate?: number;
-    avgRounds?: number;
-    utilityScore?: number;
-    concessionRate?: number;
+    rounds_completed?: number;
+    total_turns?: number;
+    agreement_confidence?: number | null;
+    constraint_compliance_rate?: number;
+    concessions_detected?: number;
+    techniques_detected?: number;
     [key: string]: any;
   };
   summary: string;
   recommendations: string;
+  analysis?: ReportIntelligenceAnalysis;
   created_at: string;
 }
 
 export const reportApi = {
   list: () => apiRequest<OutcomeReport[]>('/reports'),
   get: (reportId: string) => apiRequest<OutcomeReport>(`/reports/${reportId}`),
+  getBySession: (sessionId: string) => apiRequest<OutcomeReport>(`/reports/session/${sessionId}`),
+  generate: (sessionId: string) =>
+    apiRequest<OutcomeReport>(`/reports/session/${sessionId}/generate`, {
+      method: 'POST',
+    }),
   delete: (reportId: string) =>
     apiRequest<{ status: string; report_id: string }>(`/reports/${reportId}`, {
       method: 'DELETE',

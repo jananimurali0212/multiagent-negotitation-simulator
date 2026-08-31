@@ -50,6 +50,8 @@ class SessionResponse(BaseModel):
     max_rounds: int
     agreement_reached: bool
     final_terms: Optional[Dict[str, Any]] = None
+    report_id: Optional[str] = None
+    report_status: Optional[str] = None
     agents: List[AgentConfigSchema] = []
     messages: List[MessageSchema] = []
     created_at: datetime

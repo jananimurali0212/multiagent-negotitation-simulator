@@ -6,6 +6,7 @@ from sqlalchemy.orm import selectinload
 
 from app.models.negotiation import NegotiationSession, NegotiationMessage
 from app.models.agent import AgentConfiguration
+from app.models.report import OutcomeReport
 from app.orchestration.graph_nodes import LangGraphNegotiationEngine, NegotiationState
 from app.reports.report_generator import ReportGenerator
 from app.schemas.agent import AgentConfigSchema
@@ -324,16 +325,20 @@ class OrchestratorService:
             next_round = ((turn_count + 1) // len(agents)) + 1
             session.current_round = next_round
             session.current_speaker = agents[next_speaker_idx].name
-
+            report_id = None
+            report_status = "not_generated"
             if initial_state["status"] in ["finished", "deadlock"]:
-                session.status = initial_state["status"]
-                session.agreement_reached = initial_state.get("agreement_reached", False)
-                session.final_terms = initial_state.get("current_offer") if session.agreement_reached else None
-                await db.commit()
-
-                stop_background_simulation(session.id)
-                outcome_str = "Agreement Reached" if session.agreement_reached else "Deadlock"
-                await ReportGenerator.generate_and_save_report(session, outcome_str, db)
+                agreement_flag = initial_state.get("agreement_reached", False)
+                terms = initial_state.get("current_offer") if agreement_flag else None
+                report = await self.finalize_negotiation_session(
+                    session=session,
+                    terminal_status=initial_state["status"],
+                    db=db,
+                    agreement_reached=agreement_flag,
+                    final_terms=terms,
+                )
+                report_id = report.id if report else session.id
+                report_status = "generated" if report else "failed"
             else:
                 # In human-ai mode, if next turn is for the human, set status to waiting_for_human
                 if session.mode == "human-ai" and human_agent and (agents[next_speaker_idx].id == human_agent.id):
@@ -345,7 +350,8 @@ class OrchestratorService:
             logger.info(
                 f"[NEGOTIATION TURN EXIT] session_id={session.id} | mode={session.mode} | "
                 f"round={session.current_round} | status={session.status} | "
-                f"agreement={session.agreement_reached} | next_speaker={session.current_speaker}"
+                f"agreement={session.agreement_reached} | next_speaker={session.current_speaker} | "
+                f"report_id={report_id} | report_status={report_status}"
             )
 
             return {
@@ -367,5 +373,45 @@ class OrchestratorService:
                 },
                 "agreement_reached": session.agreement_reached,
                 "final_terms": session.final_terms,
+                "report_id": report_id,
+                "report_status": report_status,
             }
+
+    @classmethod
+    async def finalize_negotiation_session(
+        cls,
+        session: NegotiationSession,
+        terminal_status: str,
+        db: AsyncSession,
+        agreement_reached: bool = False,
+        final_terms: Optional[Dict[str, Any]] = None,
+        outcome_str: Optional[str] = None,
+    ) -> OutcomeReport:
+        """Authoritative single terminal completion handler: transitions state, halts simulation runner, and generates/persists outcome report."""
+        session.status = terminal_status
+        session.agreement_reached = agreement_reached
+        session.final_terms = final_terms if agreement_reached else (final_terms or {})
+        await db.commit()
+        await db.refresh(session)
+
+        # Halt background task if running
+        try:
+            from app.orchestration.runner import stop_background_simulation
+            stop_background_simulation(session.id)
+        except Exception:
+            pass
+
+        # Determine outcome descriptor
+        if not outcome_str:
+            if terminal_status == "finished" or agreement_reached:
+                outcome_str = "Agreement Reached"
+            elif terminal_status == "deadlock":
+                outcome_str = "Deadlock"
+            elif terminal_status == "terminated":
+                outcome_str = "Stopped by User"
+            else:
+                outcome_str = "Concluded"
+
+        report = await ReportGenerator.generate_and_save_report(session, outcome_str, db)
+        return report
 

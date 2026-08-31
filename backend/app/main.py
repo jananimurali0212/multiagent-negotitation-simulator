@@ -31,6 +31,7 @@ async def lifespan(app: FastAPI):
             ("current_speaker", "VARCHAR(100)"),
             ("latest_offer", "JSON" if conn.dialect.name == "sqlite" else "JSONB" if conn.dialect.name == "postgresql" else "JSON"),
             ("latest_offer_sender", "VARCHAR(100)"),
+            ("analysis", "JSON" if conn.dialect.name == "sqlite" else "JSONB" if conn.dialect.name == "postgresql" else "JSON"),
         ]
         for col_name, col_type in migration_statements:
             try:

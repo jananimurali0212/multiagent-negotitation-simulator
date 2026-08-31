@@ -27,6 +27,7 @@ class OutcomeReport(Base):
     metrics: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)  # concessionControl, argumentStrength, activeListening, dealProgress
     summary: Mapped[str] = mapped_column(Text, nullable=False)
     recommendations: Mapped[str] = mapped_column(Text, nullable=False)
+    analysis: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )

@@ -1,10 +1,12 @@
 from fastapi import APIRouter, Depends, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.exceptions import ForbiddenError
 from app.models.user import User
 from app.models.negotiation import NegotiationSession
+from app.models.report import OutcomeReport
 from app.schemas.arena import UserTurnPayload, TurnResultResponse
 from app.api.dependencies import get_current_user
 from app.orchestration.orchestrator import OrchestratorService
@@ -26,6 +28,10 @@ async def execute_simulation_step(
         raise ForbiddenError()
 
     if session.status in ["paused", "waiting_for_human", "finished", "deadlock", "terminated"]:
+        rep_stmt = select(OutcomeReport).where(OutcomeReport.session_id == session.id)
+        rep_res = await db.execute(rep_stmt)
+        existing_rep = rep_res.scalar_one_or_none()
+
         return TurnResultResponse(
             status=session.status,
             round=session.current_round,
@@ -33,6 +39,8 @@ async def execute_simulation_step(
             message=None,
             agreement_reached=session.agreement_reached,
             final_terms=session.final_terms,
+            report_id=existing_rep.id if existing_rep else None,
+            report_status="generated" if existing_rep else ("generating" if session.status in ["finished", "deadlock"] else "not_generated"),
         )
 
     result = await orchestrator.execute_turn(session_id=session.id, db=db)
@@ -53,6 +61,10 @@ async def submit_human_turn(
         raise ForbiddenError()
 
     if session.status in ["finished", "deadlock", "terminated"]:
+        rep_stmt = select(OutcomeReport).where(OutcomeReport.session_id == session.id)
+        rep_res = await db.execute(rep_stmt)
+        existing_rep = rep_res.scalar_one_or_none()
+
         return TurnResultResponse(
             status=session.status,
             round=session.current_round,
@@ -60,6 +72,8 @@ async def submit_human_turn(
             message=None,
             agreement_reached=session.agreement_reached,
             final_terms=session.final_terms,
+            report_id=existing_rep.id if existing_rep else None,
+            report_status="generated" if existing_rep else "not_generated",
         )
 
     result = await orchestrator.execute_turn(
@@ -90,11 +104,14 @@ async def stop_negotiation(
     stop_background_simulation(session.id)
 
     if action in ["finalize", "report", "stop", "terminate"]:
-        session.status = "terminated"
-        await db.commit()
-
-        from app.reports.report_generator import ReportGenerator
-        await ReportGenerator.generate_and_save_report(session, "Stopped by User", db)
+        report = await OrchestratorService.finalize_negotiation_session(
+            session=session,
+            terminal_status="terminated",
+            db=db,
+            agreement_reached=False,
+            final_terms=session.final_terms or {},
+            outcome_str="Stopped by User",
+        )
 
         return TurnResultResponse(
             status="terminated",
@@ -103,6 +120,8 @@ async def stop_negotiation(
             message=None,
             agreement_reached=False,
             final_terms=session.final_terms,
+            report_id=report.id if report else session.id,
+            report_status="generated" if report else "failed",
         )
 
     # Default action: pause
@@ -116,4 +135,6 @@ async def stop_negotiation(
         message=None,
         agreement_reached=False,
         final_terms=session.final_terms,
+        report_id=None,
+        report_status="not_generated",
     )
