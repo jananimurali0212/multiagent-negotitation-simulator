@@ -24,13 +24,22 @@ async def lifespan(app: FastAPI):
     # Initialize database tables
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        try:
-            if conn.dialect.name == "sqlite":
-                await conn.execute(text("ALTER TABLE negotiation_sessions ADD COLUMN human_role VARCHAR(50)"))
-            else:
-                await conn.execute(text("ALTER TABLE negotiation_sessions ADD COLUMN IF NOT EXISTS human_role VARCHAR(50)"))
-        except Exception as e:
-            logger.info(f"Migration column check note: {e}")
+        # Ensure newly added columns exist in existing database tables
+        migration_statements = [
+            ("human_role", "VARCHAR(50)"),
+            ("current_turn_index", "INTEGER DEFAULT 0"),
+            ("current_speaker", "VARCHAR(100)"),
+            ("latest_offer", "JSON" if conn.dialect.name == "sqlite" else "JSONB" if conn.dialect.name == "postgresql" else "JSON"),
+            ("latest_offer_sender", "VARCHAR(100)"),
+        ]
+        for col_name, col_type in migration_statements:
+            try:
+                if conn.dialect.name == "sqlite":
+                    await conn.execute(text(f"ALTER TABLE negotiation_sessions ADD COLUMN {col_name} {col_type}"))
+                else:
+                    await conn.execute(text(f"ALTER TABLE negotiation_sessions ADD COLUMN IF NOT EXISTS {col_name} {col_type}"))
+            except Exception as e:
+                logger.debug(f"Migration note for {col_name}: {e}")
     
     # Seed preset scenarios
     async with AsyncSessionLocal() as session:

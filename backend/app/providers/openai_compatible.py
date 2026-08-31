@@ -41,6 +41,8 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         agent_role: str,
         current_round: int,
         scenario_id: str,
+        agent_data: Optional[Dict[str, Any]] = None,
+        session_id: Optional[str] = None,
     ) -> AgentDecision:
         if not self.api_key:
             raise LLMProviderError(

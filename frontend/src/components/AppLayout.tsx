@@ -15,7 +15,8 @@ import {
   Activity,
   BarChart3,
   ChevronDown,
-  X
+  X,
+  MessageSquare
 } from 'lucide-react';
 
 interface AppLayoutProps {
@@ -72,6 +73,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   const isScenariosActive = location.pathname === '/setup/scenario';
   const isSetupActive = location.pathname === '/setup/agents' || location.pathname === '/setup/goals' || location.pathname === '/setup/review';
   const isNegotiationActive = location.pathname.startsWith('/arena');
+  const isHistoryActive = location.pathname.startsWith('/history');
   const isReportsActive = location.pathname.startsWith('/reports');
   const isSettingsActive = location.pathname.startsWith('/settings');
   const isHelpActive = location.pathname.startsWith('/help');
@@ -79,6 +81,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   const isWorkspaceScreen = 
     location.pathname.startsWith('/setup/') || 
     location.pathname.startsWith('/arena/') || 
+    location.pathname.startsWith('/history') ||
     location.pathname.startsWith('/reports') || 
     location.pathname.startsWith('/settings') || 
     location.pathname.startsWith('/help');
@@ -131,7 +134,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   };
 
   const handleProtectedNavigation = (destination: string) => {
-    if (destination === '/dashboard' || destination === '/setup/scenario') {
+    if (destination === '/dashboard' || destination === '/setup/scenario' || destination.startsWith('/reports')) {
       navigate(destination);
       return;
     }
@@ -139,19 +142,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
     const stepId = getStepIdForPath(destination);
     
     if (stepId === 'OUTCOME') {
-      if (reports.length === 0) {
-        const firstIncompleteId = getFirstIncompleteStepId();
-        const actionRoute = getRouteForStepId(firstIncompleteId);
-        setGuardModal({
-          isOpen: true,
-          title: 'No reports yet',
-          message: 'Complete a negotiation to generate an outcome report.',
-          actionText: 'Start Setup',
-          actionRoute
-        });
-      } else {
-        navigate(destination);
-      }
+      navigate(destination);
       return;
     }
 
@@ -191,6 +182,9 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   // Route Guard to prevent skipping steps
   React.useEffect(() => {
     const path = location.pathname;
+    if (path.startsWith('/reports') || path === '/dashboard') {
+      return;
+    }
     const stepId = getStepIdForPath(path);
     
     if (stepId && !canAccessStep(stepId)) {
@@ -200,18 +194,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
       // Navigate to the first incomplete step
       navigate(redirectRoute, { replace: true });
       
-      // Determine what modal content to show
-      let modalContent;
-      if (stepId === 'OUTCOME' && reports.length === 0) {
-        modalContent = {
-          title: 'No reports yet',
-          message: 'Complete a negotiation to generate an outcome report.',
-          actionText: 'Start Setup',
-          actionRoute: redirectRoute
-        };
-      } else {
-        modalContent = getGuardModalContent(firstIncompleteId);
-      }
+      const modalContent = getGuardModalContent(firstIncompleteId);
       
       setGuardModal({
         isOpen: true,
@@ -382,6 +365,17 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
                 <span>Negotiation</span>
               </button>
               <button
+                onClick={() => navigate('/history')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-all duration-200 cursor-pointer border-none bg-transparent ${
+                  isHistoryActive 
+                    ? 'bg-accent/10 text-accent shadow-xs font-semibold' 
+                    : 'text-slategray hover:text-primary hover:bg-gray-150/40'
+                }`}
+              >
+                <MessageSquare size={18} className={isHistoryActive ? 'text-accent' : 'text-slategray'} />
+                <span>History</span>
+              </button>
+              <button
                 onClick={() => handleProtectedNavigation('/reports')}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-all duration-200 cursor-pointer border-none bg-transparent ${
                   isReportsActive 
@@ -417,6 +411,17 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
                       </p>
                     </div>
                     
+                    <Link 
+                      to="/history" 
+                      onClick={() => setProfileDropdownOpen(false)}
+                      className={`flex items-center gap-2.5 px-4 py-2 text-xs text-primary hover:bg-warmpearl transition-colors font-semibold ${
+                        isHistoryActive ? 'text-accent' : ''
+                      }`}
+                    >
+                      <MessageSquare size={13} className="text-slategray" />
+                      Negotiation History
+                    </Link>
+
                     <Link 
                       to="/settings" 
                       onClick={() => setProfileDropdownOpen(false)}

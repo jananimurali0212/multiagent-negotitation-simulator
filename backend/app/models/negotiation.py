@@ -28,6 +28,10 @@ class NegotiationSession(Base):
         String(50), default="setup", nullable=False
     )  # setup, ready, running, paused, finished, deadlock, terminated
     current_round: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    current_turn_index: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    current_speaker: Mapped[str] = mapped_column(String(255), default="", nullable=True)
+    latest_offer: Mapped[dict] = mapped_column(JSON, default=dict, nullable=True)
+    latest_offer_sender: Mapped[str] = mapped_column(String(255), default="", nullable=True)
     max_rounds: Mapped[int] = mapped_column(Integer, default=20, nullable=False)  # System Safety Ceiling
     agreement_reached: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     final_terms: Mapped[dict] = mapped_column(JSON, default=dict, nullable=True)

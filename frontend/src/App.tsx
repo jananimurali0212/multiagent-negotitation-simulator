@@ -18,6 +18,7 @@ import { ReviewConfirmScreen } from './screens/ReviewConfirmScreen';
 import { SimulationArenaScreen } from './screens/SimulationArenaScreen';
 import { PracticeArenaScreen } from './screens/PracticeArenaScreen';
 import { OutcomeReportScreen } from './screens/OutcomeReportScreen';
+import { NegotiationHistoryScreen } from './screens/NegotiationHistoryScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { HelpSupportScreen } from './screens/HelpSupportScreen';
 
@@ -256,6 +257,14 @@ export const App: React.FC = () => {
           element={
             <ProtectedRoute path="/reports" isAuthInitializing={isAuthInitializing}>
               <OutcomeReportScreen />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/history"
+          element={
+            <ProtectedRoute path="/history" isAuthInitializing={isAuthInitializing}>
+              <NegotiationHistoryScreen />
             </ProtectedRoute>
           }
         />

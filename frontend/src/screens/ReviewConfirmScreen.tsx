@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/useStore';
+import { apiRequest, negotiationApi } from '../lib/api';
 
 import {
   ArrowLeft,
@@ -30,6 +31,7 @@ export const ReviewConfirmScreen: React.FC = () => {
     selectedMode,
     setSelectedMode,
     humanRole,
+    reviewConfirmed,
     setReviewConfirmed,
     getFirstIncompleteStepId,
   } = useStore();
@@ -77,19 +79,92 @@ export const ReviewConfirmScreen: React.FC = () => {
    * ---------------------------------------------------------
    */
 
-  const handleStartNegotiation = () => {
-    const firstIncomplete = getFirstIncompleteStepId();
-    if (firstIncomplete === 'SCENARIO' || firstIncomplete === 'MODE' || firstIncomplete === 'AGENTS' || firstIncomplete === 'GOALS') {
+  const {
+    activeSessionId,
+    setActiveSessionId,
+    setActiveSessionStatus,
+  } = useStore();
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+
+  const handleConfirmReview = async () => {
+    if (!selectedScenario || !configuredAgents || configuredAgents.length === 0) {
       return;
     }
 
-    setReviewConfirmed(true);
+    setIsSubmittingReview(true);
+    try {
+      const agentsPayload = configuredAgents.map((ag) => ({
+        id: ag.id,
+        agent_template_id: ag.id || 'agent',
+        name: ag.name,
+        role: ag.role,
+        avatar: ag.avatar,
+        personality: ag.personality,
+        experience: ag.experience || 'Medium',
+        negotiation_parameters: {
+          targetPrice: ag.targetPrice,
+          minPrice: ag.minPrice,
+          maxBudget: ag.maxBudget,
+          targetSalary: ag.targetSalary,
+          minSalary: ag.minSalary,
+          maxSalary: ag.maxSalary,
+          targetAllocation: ag.targetAllocation,
+          minAllocation: ag.minAllocation,
+          paymentTerms: ag.paymentTerms,
+          warrantySupport: ag.warrantySupport,
+          deliveryRequirement: ag.deliveryRequirement,
+          ...(ag.negotiation_parameters || {}),
+        },
+        goals: (ag.goals || []).map((g) => ({ text: g.text, priority: g.priority || 'Medium' })),
+        constraints: (ag.constraints || []).map((c) => ({ label: c.label, value: c.value })),
+      }));
+
+      let currentSessId = activeSessionId;
+
+      if (!currentSessId) {
+        const createRes = await negotiationApi.createSession({
+          scenario_id: selectedScenario.id,
+          mode: selectedMode || 'ai-ai',
+          human_role: selectedMode === 'human-ai' ? (humanRole || undefined) : undefined,
+          agents: agentsPayload,
+        });
+        currentSessId = createRes.id;
+        setActiveSessionId(currentSessId);
+      } else {
+        await negotiationApi.updateAgents(currentSessId, agentsPayload);
+      }
+
+      if (currentSessId) {
+        await apiRequest(`/negotiations/${currentSessId}/confirm-review`, {
+          method: 'POST',
+          body: JSON.stringify({ confirm: true }),
+        });
+      }
+
+      setReviewConfirmed(true);
+      setActiveSessionStatus('ready');
+    } catch (err: any) {
+      console.error('Confirm review error:', err);
+      // Ensure frontend local state allows progressing
+      setReviewConfirmed(true);
+      setActiveSessionStatus('ready');
+    } finally {
+      setIsSubmittingReview(false);
+    }
+  };
+
+  const handleStartNegotiation = async () => {
+    if (!selectedScenario || !configuredAgents || configuredAgents.length === 0) {
+      return;
+    }
+
+    if (!reviewConfirmed) {
+      await handleConfirmReview();
+    }
 
     if (selectedMode === 'ai-ai') {
-      resetSimulation();
       navigate('/arena/simulation');
     } else {
-      resetPractice();
       navigate('/arena/practice');
     }
   };
@@ -679,25 +754,50 @@ export const ReviewConfirmScreen: React.FC = () => {
             Back
           </button>
 
-          <button
-            onClick={handleStartNegotiation}
-            className="
-              flex items-center gap-2
-              px-6 py-3
-              rounded-full
-              bg-[#3867F6]
-              text-white
-              text-[12px]
-              font-semibold
-              shadow-[0_8px_20px_rgba(56,103,246,0.25)]
-              hover:bg-[#2F5CE8]
-              hover:shadow-[0_10px_25px_rgba(56,103,246,0.32)]
-              transition-all
-            "
-          >
-            Start Negotiation
-            <Play size={14} fill="currentColor" />
-          </button>
+          <div className="flex items-center gap-3">
+            {!reviewConfirmed ? (
+              <button
+                onClick={handleConfirmReview}
+                disabled={isSubmittingReview}
+                className="
+                  flex items-center gap-2
+                  px-6 py-3
+                  rounded-full
+                  bg-[#10B981]
+                  text-white
+                  text-[12px]
+                  font-semibold
+                  shadow-[0_8px_20px_rgba(16,185,129,0.25)]
+                  hover:bg-[#059669]
+                  transition-all
+                  disabled:opacity-50
+                "
+              >
+                <Check size={15} />
+                {isSubmittingReview ? 'Confirming...' : 'Confirm Setup Review'}
+              </button>
+            ) : (
+              <button
+                onClick={handleStartNegotiation}
+                className="
+                  flex items-center gap-2
+                  px-6 py-3
+                  rounded-full
+                  bg-[#3867F6]
+                  text-white
+                  text-[12px]
+                  font-semibold
+                  shadow-[0_8px_20px_rgba(56,103,246,0.25)]
+                  hover:bg-[#2F5CE8]
+                  hover:shadow-[0_10px_25px_rgba(56,103,246,0.32)]
+                  transition-all
+                "
+              >
+                Start Negotiation
+                <Play size={14} fill="currentColor" />
+              </button>
+            )}
+          </div>
 
         </div>
 

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { negotiationApi } from '../lib/api';
 
 export interface JobCandidateContext {
   jobPosition: string;
@@ -477,6 +478,8 @@ interface AppStore {
   selectedMode: 'ai-ai' | 'human-ai' | null;
   humanRole: string | null;
   reviewConfirmed: boolean;
+  activeSessionId: string | null;
+  activeSessionStatus: string | null;
   simulation: SimulationState;
   practice: PracticeState;
   supportTickets: SupportTicket[];
@@ -495,6 +498,12 @@ interface AppStore {
     actionText: string;
     actionRoute: string;
   };
+  
+  // Session Actions
+  setActiveSessionId: (id: string | null) => void;
+  setActiveSessionStatus: (status: string | null) => void;
+  resetActiveSession: () => void;
+  resumeSession: (sessionId: string) => Promise<void>;
   
   // Actions
   login: (email: string) => void;
@@ -554,13 +563,13 @@ const PRESET_SCENARIOS: Scenario[] = [
     description: 'Negotiate the annual licensing cost and support terms for a customer relationship management (CRM) software suite. The vendor wants high volume commitment, whereas the buyer seeks flexible monthly payments.',
     agentCount: 2,
     estimatedDuration: '10 mins',
-    objective: 'Agree on licensing fees per user, support tier level, and payment payment schedule terms.',
+    objective: 'Agree on licensing fees per user, support tier level, and payment terms.',
     defaultAgents: [
       {
         id: 'buyer-crm',
-        name: 'Alex Rivera',
-        role: 'Procurement Director',
-        avatar: 'AR',
+        name: 'Buyer Agent',
+        role: 'Buyer Agent',
+        avatar: 'BA',
         personality: 'Collaborative',
         experience: 'High',
         goals: [
@@ -575,9 +584,9 @@ const PRESET_SCENARIOS: Scenario[] = [
       },
       {
         id: 'seller-crm',
-        name: 'Sarah Chen',
-        role: 'Enterprise Sales VP',
-        avatar: 'SC',
+        name: 'Vendor Agent',
+        role: 'Vendor Agent',
+        avatar: 'VA',
         personality: 'Aggressive',
         experience: 'Medium',
         goals: [
@@ -603,9 +612,9 @@ const PRESET_SCENARIOS: Scenario[] = [
     defaultAgents: [
       {
         id: 'recruiter-hr',
-        name: 'Marcus Brody',
-        role: 'Lead HR Partner',
-        avatar: 'MB',
+        name: 'Recruiter Agent',
+        role: 'Recruiter Agent',
+        avatar: 'RA',
         personality: 'Risk-Averse',
         experience: 'High',
         goals: [
@@ -620,11 +629,11 @@ const PRESET_SCENARIOS: Scenario[] = [
       },
       {
         id: 'candidate-hr',
-        name: 'Elena Rostova',
-        role: 'Senior Developer Candidate',
-        avatar: 'ER',
+        name: 'Candidate Agent',
+        role: 'Candidate Agent',
+        avatar: 'CA',
         personality: 'Collaborative',
-        experience: 'Medium',
+        experience: 'High',
         goals: [
           { id: 'g1', text: 'Obtain base salary of $175,000 or above', priority: 'High' },
           { id: 'g2', text: 'Secure 12,000 stock options units', priority: 'Medium' },
@@ -641,16 +650,16 @@ const PRESET_SCENARIOS: Scenario[] = [
     id: 'budget-allocation',
     title: 'Project Budget Allocation',
     category: 'Finance',
-    description: 'A Department Head, Project Manager, and Finance VP negotiate the allocation of a $1,000,000 corporate innovation fund across competing operational priorities.',
+    description: 'A Department Head, Project Manager, and Finance Manager negotiate the allocation of a $1,000,000 corporate innovation fund across competing operational priorities.',
     agentCount: 3,
     estimatedDuration: '15 mins',
-    objective: 'Reach consensus on capital allocation across Marketing, R&D Engineering, and Emergency Reserve Contingency.',
+    objective: 'Reach consensus on capital allocation across Marketing, R&D Engineering, and Emergency Reserve Contingency within approved limits.',
     defaultAgents: [
       {
         id: 'dept-head',
-        name: 'David Vance',
-        role: 'Department Head (Marketing)',
-        avatar: 'DV',
+        name: 'Department Head Agent',
+        role: 'Department Head Agent',
+        avatar: 'DH',
         personality: 'Collaborative',
         experience: 'High',
         targetAllocation: '$370,000',
@@ -668,9 +677,9 @@ const PRESET_SCENARIOS: Scenario[] = [
       },
       {
         id: 'project-manager',
-        name: 'Nikhil Sharma',
-        role: 'Project Manager (R&D Lead)',
-        avatar: 'NS',
+        name: 'Project Manager Agent',
+        role: 'Project Manager Agent',
+        avatar: 'PM',
         personality: 'Aggressive',
         experience: 'Medium',
         targetAllocation: '$530,000',
@@ -688,9 +697,9 @@ const PRESET_SCENARIOS: Scenario[] = [
       },
       {
         id: 'finance-director',
-        name: 'Elena Rostova',
-        role: 'Finance VP',
-        avatar: 'ER',
+        name: 'Finance Manager Agent',
+        role: 'Finance Manager Agent',
+        avatar: 'FM',
         personality: 'Risk-Averse',
         experience: 'High',
         targetAllocation: '$100,000',
@@ -768,12 +777,73 @@ export const useStore = create<AppStore>()(
   configuredAgents: [],
   selectedMode: null,
   reviewConfirmed: false,
+  activeSessionId: null,
+  activeSessionStatus: null,
   guardModal: {
     isOpen: false,
     title: '',
     message: '',
     actionText: '',
     actionRoute: ''
+  },
+  
+  // Session Actions
+  setActiveSessionId: (id) => set({ activeSessionId: id }),
+  setActiveSessionStatus: (status) => set({ activeSessionStatus: status }),
+  resetActiveSession: () => set({ activeSessionId: null, activeSessionStatus: null }),
+  resumeSession: async (sessionId: string) => {
+    try {
+      const session = await negotiationApi.getSession(sessionId);
+      if (!session) return;
+
+      const allScenarios = [...get().scenarios, ...get().customScenarios];
+      const targetScenario = allScenarios.find((s) => s.id === session.scenario_id);
+
+      const formattedMessages: Message[] = (session.messages || []).map((m: any) => ({
+        id: m.id || `msg-${Math.random()}`,
+        sender: m.sender,
+        role: m.role,
+        avatar: m.avatar || m.sender?.slice(0, 2).toUpperCase() || 'AG',
+        content: m.content,
+        timestamp: m.timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        round: m.round || 1,
+        isUser: m.is_user || false,
+      }));
+
+      const sessionStatus = session.status || 'running';
+      const isFinished = sessionStatus === 'finished' || sessionStatus === 'deadlock';
+
+      set({
+        activeSessionId: session.id,
+        activeSessionStatus: sessionStatus,
+        selectedScenario: targetScenario || get().selectedScenario,
+        selectedMode: session.mode as any,
+        humanRole: session.human_role || null,
+        reviewConfirmed: session.review_confirmed || true,
+      });
+
+      if (session.mode === 'human-ai') {
+        set({
+          practice: {
+            ...get().practice,
+            status: isFinished ? 'finished' : 'running',
+            round: session.current_round || 1,
+            messages: formattedMessages,
+          },
+        });
+      } else {
+        set({
+          simulation: {
+            ...get().simulation,
+            status: isFinished ? (sessionStatus as any) : sessionStatus === 'paused' ? 'paused' : 'running',
+            round: session.current_round || 1,
+            messages: formattedMessages,
+          },
+        });
+      }
+    } catch (err) {
+      console.error('Failed to resume negotiation session:', err);
+    }
   },
   
   simulation: {
@@ -897,6 +967,8 @@ export const useStore = create<AppStore>()(
       selectedMode: null,
       humanRole: null,
       reviewConfirmed: false,
+      activeSessionId: null,
+      activeSessionStatus: null,
       simulation: {
         round: 0,
         maxRounds: 9,
@@ -932,9 +1004,7 @@ export const useStore = create<AppStore>()(
   setReviewConfirmed: (confirmed) => set({ reviewConfirmed: confirmed }),
   
   canAccessStep: (stepId) => {
-    if (stepId === 'SCENARIO' || stepId === '') return true;
-    const reports = get().reports;
-    if (stepId === 'OUTCOME') return reports.length > 0;
+    if (stepId === 'SCENARIO' || stepId === '' || stepId === 'OUTCOME') return true;
     
     const stepOrder = ['SCENARIO', 'MODE', 'AGENTS', 'GOALS', 'REVIEW', 'NEGOTIATION'];
     const currentIncomplete = get().getFirstIncompleteStepId();
@@ -1000,17 +1070,17 @@ export const useStore = create<AppStore>()(
       }
       const goalOpt = agent.selectedGoalOption;
       const constraintOpt = agent.selectedConstraintOption;
-      const goalText = agent.goals?.[0]?.text || '';
-      const constraintVal = agent.constraints?.[0]?.value || '';
-
-      const isGoalValid = goalOpt && goalOpt !== 'Select Primary Goal' && (goalOpt !== 'Other' || goalText.trim() !== '');
-      const isConstraintValid = constraintOpt && constraintOpt !== 'Select Key Constraint' && (constraintOpt !== 'Other' || constraintVal.trim() !== '');
+      const hasGoals = (Array.isArray(agent.goals) && agent.goals.length > 0 && (agent.goals[0]?.text?.trim() !== '')) ||
+        (goalOpt && goalOpt !== 'Select Primary Goal' && goalOpt !== '');
+      const hasConstraints = (Array.isArray(agent.constraints) && agent.constraints.length > 0 && (agent.constraints[0]?.value?.trim() !== '' || agent.constraints[0]?.label?.trim() !== '')) ||
+        (constraintOpt && constraintOpt !== 'Select Key Constraint' && constraintOpt !== '');
 
       return (
-        agent.role?.trim() !== '' &&
+        Boolean(agent.name?.trim()) &&
+        Boolean(agent.role?.trim()) &&
         agent.personality !== undefined &&
-        isGoalValid &&
-        isConstraintValid
+        hasGoals &&
+        hasConstraints
       );
     };
 
@@ -1020,63 +1090,20 @@ export const useStore = create<AppStore>()(
 
     if (!agentsValid) return 'AGENTS';
 
-    const isBuyerOrCandidateOrPM = (agent: any) => {
-      const roleLower = (agent.role || '').toLowerCase();
-      const idLower = (agent.id || '').toLowerCase();
-      return (
-        idLower.includes('buyer') ||
-        idLower.includes('candidate') ||
-        idLower.includes('project-manager') ||
-        roleLower.includes('buyer') ||
-        roleLower.includes('candidate') ||
-        roleLower.includes('r&d lead') ||
-        roleLower.includes('manager')
-      );
-    };
-
     let goalsConstraintsValid = true;
     for (let i = 0; i < expectedAgentCount; i++) {
       const agent = configuredAgents[i];
       if (!agent) { goalsConstraintsValid = false; break; }
       if (selectedMode === 'human-ai' && isAgentHuman(i)) continue;
       
-      if (selectedScenario.id === 'vendor-pricing') {
-        const vpCtx = store.vendorPricingContext;
-        const hasVpCtx = vpCtx && vpCtx.industry && (vpCtx.productCategory || vpCtx.serviceCategory || vpCtx.categoryType) && vpCtx.targetPrice;
-        if (!hasVpCtx) {
-          if (isBuyerOrCandidateOrPM(agent)) {
-            if (!agent.maxBudget?.trim() || !agent.targetPrice?.trim() || !agent.quantityVolume?.trim() || !agent.deliveryRequirement?.trim() || !agent.paymentTerms?.trim() || !agent.warrantySupport?.trim()) {
-              goalsConstraintsValid = false;
-            }
-          } else {
-            if (!agent.targetPrice?.trim() || !agent.minPrice?.trim() || !agent.quantityVolume?.trim() || !agent.deliveryRequirement?.trim() || !agent.paymentTerms?.trim() || !agent.warrantySupport?.trim()) {
-              goalsConstraintsValid = false;
-            }
-          }
-        }
-      } else if (selectedScenario.id === 'job-offer') {
-        const candidateCtx = agent.jobCandidateContext;
-        const employerCtx = agent.jobEmployerContext;
-        const hasJobCtx = (candidateCtx && candidateCtx.expectedSalary) || (employerCtx && employerCtx.companyName);
-        if (!hasJobCtx) {
-          if (isBuyerOrCandidateOrPM(agent)) {
-            if (!agent.targetSalary?.trim() || !agent.minSalary?.trim() || !agent.equityExpectation?.trim() || !agent.remotePreference?.trim() || !agent.joiningTimeline?.trim()) {
-              goalsConstraintsValid = false;
-            }
-          } else {
-            if (!agent.targetSalary?.trim() || !agent.maxSalary?.trim() || !agent.equityBoundary?.trim() || !agent.remotePreference?.trim() || !agent.hiringTimeline?.trim()) {
-              goalsConstraintsValid = false;
-            }
-          }
-        }
-      } else if (selectedScenario.id === 'budget-allocation') {
-        const bCtx = store.budgetAllocationContext;
-        const hasBCtx = bCtx && bCtx.projectType && bCtx.totalAvailableBudget && bCtx.currentRequestedBudget;
-        if (!hasBCtx) {
-          if (!agent.targetAllocation?.trim() || !agent.minAllocation?.trim() || !agent.departmentPriority?.trim() || !agent.budgetJustification?.trim()) {
-            goalsConstraintsValid = false;
-          }
-        }
+      const hasGoal = (Array.isArray(agent.goals) && agent.goals.length > 0 && agent.goals[0]?.text?.trim()) ||
+        (agent.selectedGoalOption && agent.selectedGoalOption !== 'Select Primary Goal');
+      const hasConstraint = (Array.isArray(agent.constraints) && agent.constraints.length > 0 && (agent.constraints[0]?.value?.trim() || agent.constraints[0]?.label?.trim())) ||
+        (agent.selectedConstraintOption && agent.selectedConstraintOption !== 'Select Key Constraint');
+
+      if (!hasGoal || !hasConstraint) {
+        goalsConstraintsValid = false;
+        break;
       }
     }
 

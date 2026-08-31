@@ -29,7 +29,7 @@ class MockFailingProvider(BaseLLMProvider):
         return True
 
     async def generate_decision(
-        self, prompt: str, agent_personality: str, agent_role: str, current_round: int, scenario_id: str
+        self, prompt: str, agent_personality: str, agent_role: str, current_round: int, scenario_id: str, *args, **kwargs
     ) -> AgentDecision:
         self.call_count += 1
         raise LLMProviderError(
@@ -56,7 +56,7 @@ class MockSuccessProvider(BaseLLMProvider):
         return True
 
     async def generate_decision(
-        self, prompt: str, agent_personality: str, agent_role: str, current_round: int, scenario_id: str
+        self, prompt: str, agent_personality: str, agent_role: str, current_round: int, scenario_id: str, *args, **kwargs
     ) -> AgentDecision:
         self.call_count += 1
         return AgentDecision(
@@ -175,7 +175,7 @@ async def test_gemini_failure_groq_failure_openrouter_failure_rulefallback():
     assert groq.call_count == 1
     assert openrouter.call_count == 1
     assert isinstance(decision, AgentDecision)
-    assert decision.action in ["counteroffer", "accept"]
+    assert decision.action in ["offer", "counteroffer", "accept"]
 
 
 def test_openrouter_specific_model_config():

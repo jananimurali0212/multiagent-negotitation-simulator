@@ -51,249 +51,281 @@ class OrchestratorService:
         user_message: Optional[str] = None,
         user_offer: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Executes a negotiation turn using LangGraph StateGraph engine."""
-        stmt = (
-            select(NegotiationSession)
-            .where(NegotiationSession.id == session_id)
-            .options(
-                selectinload(NegotiationSession.agents).selectinload(AgentConfiguration.goals),
-                selectinload(NegotiationSession.agents).selectinload(AgentConfiguration.constraints),
-                selectinload(NegotiationSession.messages),
+        """Executes a negotiation turn with strict concurrency locking, turn order, and state persistence."""
+        from app.orchestration.runner import get_session_lock, stop_background_simulation
+
+        lock = get_session_lock(session_id)
+        async with lock:
+            stmt = (
+                select(NegotiationSession)
+                .where(NegotiationSession.id == session_id)
+                .options(
+                    selectinload(NegotiationSession.agents).selectinload(AgentConfiguration.goals),
+                    selectinload(NegotiationSession.agents).selectinload(AgentConfiguration.constraints),
+                    selectinload(NegotiationSession.messages),
+                )
             )
-        )
-        result = await db.execute(stmt)
-        session = result.scalar_one_or_none()
+            result = await db.execute(stmt)
+            session = result.scalar_one_or_none()
 
-        if not session:
-            raise ValueError(f"Session {session_id} not found")
+            if not session:
+                raise ValueError(f"Session {session_id} not found")
 
-        if session.status in ["finished", "deadlock", "terminated"]:
-            return {
-                "status": session.status,
-                "round": session.current_round,
-                "message": None,
-                "agreement_reached": session.agreement_reached,
-                "final_terms": session.final_terms,
-            }
+            if session.status in ["finished", "deadlock", "terminated"]:
+                return {
+                    "status": session.status,
+                    "round": session.current_round,
+                    "message": None,
+                    "agreement_reached": session.agreement_reached,
+                    "final_terms": session.final_terms,
+                }
 
-        agents = session.agents
-        messages = session.messages or []
-        turn_count = len(messages)
+            agents = list(session.agents or [])
+            if not agents:
+                raise ValueError(f"Session {session_id} has no configured agents")
 
-        # Handle Human vs AI mode user input with Phase 3 validation
-        if session.mode == "human-ai" and user_message:
-            human_role_clean = (getattr(session, "human_role", "") or "").lower()
-            is_agent_1_human = human_role_clean in ["vendor", "recruiter", "finance-lead"] or (
-                len(agents) > 1 and human_role_clean == (agents[1].role or "").lower()
+            # Sort messages strictly by round, turn_index, created_at
+            raw_messages = list(session.messages or [])
+            raw_messages.sort(key=lambda m: (m.round or 1, m.turn_index or 0, getattr(m, "timestamp", None) or getattr(m, "created_at", None)))
+            messages = raw_messages
+            turn_count = len(messages)
+
+            # Handle Human vs AI mode user input with Phase 3 validation
+            if session.mode == "human-ai" and user_message:
+                human_role_clean = (getattr(session, "human_role", "") or "").lower()
+                is_agent_1_human = human_role_clean in ["vendor", "recruiter", "finance-lead"] or (
+                    len(agents) > 1 and human_role_clean == (agents[1].role or "").lower()
+                )
+                human_agent = agents[1] if (is_agent_1_human and len(agents) > 1) else agents[0]
+
+                # Build AgentConfigSchema for validation
+                human_schema = AgentConfigSchema(
+                    id=human_agent.id,
+                    agent_template_id=human_agent.agent_template_id or "unknown",
+                    name=human_agent.name or "You (User)",
+                    role=human_agent.role or "Participant",
+                    avatar=human_agent.avatar or "US",
+                    personality=human_agent.personality or "Collaborative",
+                    experience=human_agent.experience or "Medium",
+                    goals=[{"priority": g.priority, "text": g.text} for g in human_agent.goals] if human_agent.goals else [],
+                    constraints=[{"label": c.label, "value": c.value} for c in human_agent.constraints] if human_agent.constraints else [],
+                    negotiation_parameters=human_agent.negotiation_parameters or {},
+                )
+
+                # Validate user offer structure and constraints
+                if user_offer:
+                    struct_res = OfferRules.validate_offer_structure(session.scenario_id, user_offer, action="counteroffer")
+                    if not struct_res.is_valid:
+                        return {
+                            "status": session.status,
+                            "round": session.current_round,
+                            "current_turn_speaker": human_agent.name if human_agent else "",
+                            "message": None,
+                            "agreement_reached": False,
+                            "final_terms": None,
+                            "validation_error": struct_res.human_safe_message,
+                        }
+
+                    constraint_res = ConstraintRules.validate_agent_constraints(human_schema, session.scenario_id, user_offer, action="counteroffer")
+                    if not constraint_res.is_valid:
+                        return {
+                            "status": session.status,
+                            "round": session.current_round,
+                            "current_turn_speaker": human_agent.name if human_agent else "",
+                            "message": None,
+                            "agreement_reached": False,
+                            "final_terms": None,
+                            "validation_error": constraint_res.human_safe_message,
+                        }
+
+                # Validate user acceptance
+                if user_message.strip().lower() == "accept":
+                    existing_msgs = [
+                        {
+                            "sender": m.sender, "role": m.role, "content": m.content,
+                            "offer_data": m.offer_data, "round": m.round,
+                        }
+                        for m in messages
+                    ]
+                    acc_res = AcceptanceRules.validate_acceptance(
+                        human_schema, session.scenario_id, user_offer, existing_msgs, status=session.status
+                    )
+                    if not acc_res.is_valid:
+                        return {
+                            "status": session.status,
+                            "round": session.current_round,
+                            "current_turn_speaker": human_agent.name if human_agent else "",
+                            "message": None,
+                            "agreement_reached": False,
+                            "final_terms": None,
+                            "validation_error": acc_res.human_safe_message,
+                        }
+
+                user_msg = NegotiationMessage(
+                    session_id=session.id,
+                    sender=human_agent.name if (human_agent and human_agent.name) else "You (User)",
+                    role=human_agent.role if (human_agent and human_agent.role) else "Participant",
+                    avatar=human_agent.avatar if (human_agent and human_agent.avatar) else "US",
+                    content=user_message,
+                    offer_data=user_offer or {},
+                    round=(turn_count // len(agents)) + 1,
+                    turn_index=turn_count,
+                    is_user=True,
+                )
+                db.add(user_msg)
+                await db.flush()
+                messages.append(user_msg)
+                turn_count += 1
+
+                if user_offer:
+                    session.latest_offer = user_offer
+                    session.latest_offer_sender = user_msg.sender
+
+            # Deterministic turn order calculation
+            speaker_idx = turn_count % len(agents)
+            calculated_round = (turn_count // len(agents)) + 1
+            active_speaker_name = agents[speaker_idx].name
+
+            session.current_round = calculated_round
+            session.current_turn_index = turn_count
+            session.current_speaker = active_speaker_name
+
+            logger.info(
+                f"[NEGOTIATION TURN ENTRY] session_id={session.id} | mode={session.mode} | "
+                f"round={session.current_round} | turn_index={turn_count} | speaker={active_speaker_name} | "
+                f"message_count={len(messages)}"
             )
-            human_agent = agents[1] if (is_agent_1_human and len(agents) > 1) else agents[0]
 
-            # Build AgentConfigSchema for validation
-            human_schema = AgentConfigSchema(
-                id=human_agent.id,
-                agent_template_id=human_agent.agent_template_id or "unknown",
-                name=human_agent.name or "You (User)",
-                role=human_agent.role or "Participant",
-                avatar=human_agent.avatar or "US",
-                personality=human_agent.personality or "Collaborative",
-                experience=human_agent.experience or "Medium",
-                goals=[{"priority": g.priority, "text": g.text} for g in human_agent.goals] if human_agent.goals else [],
-                constraints=[{"label": c.label, "value": c.value} for c in human_agent.constraints] if human_agent.constraints else [],
-                negotiation_parameters=human_agent.negotiation_parameters or {},
-            )
-
-            # Validate user offer structure and constraints
-            if user_offer:
-                struct_res = OfferRules.validate_offer_structure(session.scenario_id, user_offer, action="counteroffer")
-                if not struct_res.is_valid:
-                    return {
-                        "status": session.status,
-                        "round": session.current_round,
-                        "current_turn_speaker": human_agent.name if human_agent else "",
-                        "message": None,
-                        "agreement_reached": False,
-                        "final_terms": None,
-                        "validation_error": struct_res.human_safe_message,
-                    }
-
-                constraint_res = ConstraintRules.validate_agent_constraints(human_schema, session.scenario_id, user_offer, action="counteroffer")
-                if not constraint_res.is_valid:
-                    return {
-                        "status": session.status,
-                        "round": session.current_round,
-                        "current_turn_speaker": human_agent.name if human_agent else "",
-                        "message": None,
-                        "agreement_reached": False,
-                        "final_terms": None,
-                        "validation_error": constraint_res.human_safe_message,
-                    }
-
-            # Validate user acceptance
-            if user_message.strip().lower() == "accept":
-                existing_msgs = [
+            # Construct LangGraph State
+            initial_state: NegotiationState = {
+                "session_id": session.id,
+                "scenario_id": session.scenario_id,
+                "mode": session.mode,
+                "current_round": session.current_round,
+                "max_rounds": session.max_rounds,
+                "current_speaker_index": speaker_idx,
+                "current_turn_speaker": active_speaker_name,
+                "agents": [
                     {
-                        "sender": m.sender, "role": m.role, "content": m.content,
-                        "offer_data": m.offer_data, "round": m.round,
+                        "id": a.id,
+                        "agent_template_id": a.agent_template_id,
+                        "name": a.name,
+                        "role": a.role,
+                        "avatar": a.avatar,
+                        "personality": a.personality,
+                        "experience": a.experience,
+                        "negotiation_parameters": a.negotiation_parameters or {},
+                        "goals": [{"priority": g.priority, "text": g.text} for g in a.goals],
+                        "constraints": [{"label": c.label, "value": c.value} for c in a.constraints],
+                    }
+                    for a in agents
+                ],
+                "messages": [
+                    {
+                        "sender": m.sender,
+                        "role": m.role,
+                        "avatar": m.avatar,
+                        "content": m.content,
+                        "offer_data": m.offer_data,
+                        "round": m.round,
+                        "turn_index": m.turn_index,
+                        "is_user": m.is_user,
                     }
                     for m in messages
-                ]
-                acc_res = AcceptanceRules.validate_acceptance(
-                    human_schema, session.scenario_id, user_offer, existing_msgs, status=session.status
-                )
-                if not acc_res.is_valid:
-                    return {
-                        "status": session.status,
-                        "round": session.current_round,
-                        "current_turn_speaker": human_agent.name if human_agent else "",
-                        "message": None,
-                        "agreement_reached": False,
-                        "final_terms": None,
-                        "validation_error": acc_res.human_safe_message,
-                    }
+                ],
+                "current_offer": session.latest_offer or session.final_terms,
+                "agreement_reached": session.agreement_reached,
+                "deadlock_detected": False,
+                "status": session.status,
+                "latest_decision": None,
+            }
 
-            user_msg = NegotiationMessage(
+            # Run compiled LangGraph workflow if available, otherwise execute nodes
+            if self.workflow:
+                final_graph_state = await self.workflow.ainvoke(initial_state)
+                initial_state.update(final_graph_state)
+            else:
+                reasoning_res = await self.engine.agent_reasoning_node(initial_state)
+                initial_state.update(reasoning_res)
+                eval_res = self.engine.offer_evaluator_node(initial_state)
+                initial_state.update(eval_res)
+
+            # Persist new message (guard against blocked decisions with no new messages)
+            new_messages = initial_state["messages"]
+            if not new_messages or len(new_messages) <= turn_count:
+                logger.warning(f"[NEGOTIATION TURN BLOCKED] session_id={session.id} | decision blocked by validation")
+                return {
+                    "status": session.status,
+                    "round": session.current_round,
+                    "current_turn_speaker": active_speaker_name,
+                    "message": None,
+                    "agreement_reached": session.agreement_reached,
+                    "final_terms": session.final_terms,
+                    "validation_blocked": True,
+                }
+
+            latest_msg_data = new_messages[-1]
+            ai_msg = NegotiationMessage(
                 session_id=session.id,
-                sender=human_agent.name if (human_agent and human_agent.name) else "You (User)",
-                role=human_agent.role if (human_agent and human_agent.role) else "Participant",
-                avatar=human_agent.avatar if (human_agent and human_agent.avatar) else "US",
-                content=user_message,
-                offer_data=user_offer or {},
-                round=session.current_round,
+                sender=latest_msg_data["sender"],
+                role=latest_msg_data["role"],
+                avatar=latest_msg_data["avatar"],
+                content=latest_msg_data["content"],
+                rationale_summary=latest_msg_data.get("rationale_summary"),
+                offer_data=latest_msg_data.get("offer_data", {}),
+                round=calculated_round,
                 turn_index=turn_count,
-                is_user=True,
+                is_user=False,
             )
-            db.add(user_msg)
-            await db.flush()
-            messages.append(user_msg)
-            turn_count += 1
+            db.add(ai_msg)
 
-        speaker_idx = turn_count % len(agents)
+            # Update latest offer tracking on session
+            if ai_msg.offer_data and isinstance(ai_msg.offer_data, dict) and len(ai_msg.offer_data) > 0:
+                session.latest_offer = ai_msg.offer_data
+                session.latest_offer_sender = ai_msg.sender
 
-        logger.info(
-            f"[NEGOTIATION TURN ENTRY] session_id={session.id} | mode={session.mode} | "
-            f"round={session.current_round} | speaker={agents[speaker_idx].name} | "
-            f"message_count={len(messages)} | user_message_present={bool(user_message)}"
-        )
+            session.current_turn_index = turn_count + 1
+            next_speaker_idx = (turn_count + 1) % len(agents)
+            next_round = ((turn_count + 1) // len(agents)) + 1
+            session.current_round = next_round
+            session.current_speaker = agents[next_speaker_idx].name
 
-        # Construct LangGraph State
-        initial_state: NegotiationState = {
-            "session_id": session.id,
-            "scenario_id": session.scenario_id,
-            "mode": session.mode,
-            "current_round": session.current_round,
-            "max_rounds": session.max_rounds,
-            "current_speaker_index": speaker_idx,
-            "current_turn_speaker": agents[speaker_idx].name,
-            "agents": [
-                {
-                    "id": a.id,
-                    "agent_template_id": a.agent_template_id,
-                    "name": a.name,
-                    "role": a.role,
-                    "avatar": a.avatar,
-                    "personality": a.personality,
-                    "experience": a.experience,
-                    "negotiation_parameters": a.negotiation_parameters or {},
-                    "goals": [{"priority": g.priority, "text": g.text} for g in a.goals],
-                    "constraints": [{"label": c.label, "value": c.value} for c in a.constraints],
-                }
-                for a in agents
-            ],
-            "messages": [
-                {
-                    "sender": m.sender,
-                    "role": m.role,
-                    "avatar": m.avatar,
-                    "content": m.content,
-                    "offer_data": m.offer_data,
-                    "round": m.round,
-                    "turn_index": m.turn_index,
-                    "is_user": m.is_user,
-                }
-                for m in messages
-            ],
-            "current_offer": session.final_terms,
-            "agreement_reached": session.agreement_reached,
-            "deadlock_detected": False,
-            "status": session.status,
-            "latest_decision": None,
-        }
+            if initial_state["status"] in ["finished", "deadlock"]:
+                session.status = initial_state["status"]
+                session.agreement_reached = initial_state.get("agreement_reached", False)
+                session.final_terms = initial_state.get("current_offer") if session.agreement_reached else None
+                await db.commit()
 
-        # Run compiled LangGraph workflow if available, otherwise execute nodes
-        if self.workflow:
-            final_graph_state = await self.workflow.ainvoke(initial_state)
-            initial_state.update(final_graph_state)
-        else:
-            reasoning_res = await self.engine.agent_reasoning_node(initial_state)
-            initial_state.update(reasoning_res)
-            eval_res = self.engine.offer_evaluator_node(initial_state)
-            initial_state.update(eval_res)
+                stop_background_simulation(session.id)
+                outcome_str = "Agreement Reached" if session.agreement_reached else "Deadlock"
+                await ReportGenerator.generate_and_save_report(session, outcome_str, db)
+            else:
+                await db.commit()
 
-        # Persist new message (guard against blocked decisions with no new messages)
-        new_messages = initial_state["messages"]
-        if not new_messages or len(new_messages) <= turn_count:
-            logger.warning(f"[NEGOTIATION TURN BLOCKED] session_id={session.id} | decision blocked by validation")
+            logger.info(
+                f"[NEGOTIATION TURN EXIT] session_id={session.id} | mode={session.mode} | "
+                f"round={session.current_round} | status={session.status} | "
+                f"agreement={session.agreement_reached} | next_speaker={session.current_speaker}"
+            )
+
             return {
                 "status": session.status,
                 "round": session.current_round,
-                "current_turn_speaker": agents[speaker_idx].name,
-                "message": None,
+                "current_turn_speaker": ai_msg.sender,
+                "next_speaker": session.current_speaker,
+                "message": {
+                    "id": ai_msg.id,
+                    "sender": ai_msg.sender,
+                    "role": ai_msg.role,
+                    "avatar": ai_msg.avatar,
+                    "content": ai_msg.content,
+                    "round": ai_msg.round,
+                    "turn_index": ai_msg.turn_index,
+                    "is_user": False,
+                    "timestamp": ai_msg.timestamp.isoformat(),
+                    "offer_data": ai_msg.offer_data,
+                },
                 "agreement_reached": session.agreement_reached,
                 "final_terms": session.final_terms,
-                "validation_blocked": True,
             }
-
-        latest_msg_data = new_messages[-1]
-        ai_msg = NegotiationMessage(
-            session_id=session.id,
-            sender=latest_msg_data["sender"],
-            role=latest_msg_data["role"],
-            avatar=latest_msg_data["avatar"],
-            content=latest_msg_data["content"],
-            rationale_summary=latest_msg_data.get("rationale_summary"),
-            offer_data=latest_msg_data.get("offer_data", {}),
-            round=latest_msg_data["round"],
-            turn_index=latest_msg_data["turn_index"],
-            is_user=False,
-        )
-        db.add(ai_msg)
-
-        session.current_round = initial_state["current_round"]
-
-        if initial_state["status"] in ["finished", "deadlock"]:
-            session.status = initial_state["status"]
-            session.agreement_reached = initial_state.get("agreement_reached", False)
-            session.final_terms = initial_state.get("current_offer") or {}
-            await db.commit()
-
-            outcome_str = "Agreement Reached" if session.agreement_reached else "Deadlock"
-            await ReportGenerator.generate_and_save_report(session, outcome_str, db)
-        else:
-            await db.commit()
-
-        logger.info(
-            f"[NEGOTIATION TURN EXIT] session_id={session.id} | mode={session.mode} | "
-            f"round={session.current_round} | status={session.status} | "
-            f"agreement={session.agreement_reached}"
-        )
-
-        return {
-            "status": session.status,
-            "round": session.current_round,
-            "current_turn_speaker": ai_msg.sender,
-            "message": {
-                "id": ai_msg.id,
-                "sender": ai_msg.sender,
-                "role": ai_msg.role,
-                "avatar": ai_msg.avatar,
-                "content": ai_msg.content,
-                "round": ai_msg.round,
-                "turn_index": ai_msg.turn_index,
-                "is_user": False,
-                "timestamp": ai_msg.timestamp.isoformat(),
-                "offer_data": ai_msg.offer_data,
-            },
-            "agreement_reached": session.agreement_reached,
-            "final_terms": session.final_terms,
-        }
 

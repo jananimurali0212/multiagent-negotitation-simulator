@@ -38,6 +38,8 @@ class BaseLLMProvider(ABC):
         agent_role: str,
         current_round: int,
         scenario_id: str,
+        agent_data: Optional[Dict[str, Any]] = None,
+        session_id: Optional[str] = None,
     ) -> AgentDecision:
         """Generates a validated AgentDecision schema from the LLM provider.
 

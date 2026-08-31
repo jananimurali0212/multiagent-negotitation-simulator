@@ -66,6 +66,7 @@ class LLMProviderManager:
         agent_role: str,
         current_round: int,
         scenario_id: str,
+        agent_data: Optional[Dict[str, Any]] = None,
         session_id: Optional[str] = None,
     ) -> AgentDecision:
         """Executes LLM decision generation with transparent multi-provider failover."""
@@ -101,6 +102,8 @@ class LLMProviderManager:
                         agent_role=agent_role,
                         current_round=current_round,
                         scenario_id=scenario_id,
+                        agent_data=agent_data,
+                        session_id=session_id,
                     )
 
                     if idx > 0:
@@ -143,4 +146,12 @@ class LLMProviderManager:
         # Final fallback safety net (should never be reached if FallbackRuleProvider is present)
         logger.critical("All configured LLM providers failed. Executing safety rule decision.")
         rule_fallback = FallbackRuleProvider()
-        return await rule_fallback.generate_decision(prompt, agent_personality, agent_role, current_round, scenario_id)
+        return await rule_fallback.generate_decision(
+            prompt,
+            agent_personality,
+            agent_role,
+            current_round,
+            scenario_id,
+            agent_data=agent_data,
+            session_id=session_id,
+        )

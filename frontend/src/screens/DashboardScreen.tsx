@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/useStore';
-import { dashboardApi, DashboardSummary } from '../lib/api';
+import { dashboardApi, DashboardSummary, negotiationApi } from '../lib/api';
 
 import {
   Activity,
@@ -17,6 +17,9 @@ import {
   Layers,
   PieChart,
   Play,
+  Pause,
+  Square,
+  X,
   ShoppingCart,
   Target,
   Users,
@@ -351,10 +354,99 @@ const ScenarioCard: React.FC<ScenarioCardProps> = ({
 
 export const DashboardScreen: React.FC = () => {
   const navigate = useNavigate();
-  const { user, scenarios, selectScenario, setSelectedReportId } = useStore();
+  const { user, scenarios, selectScenario, setSelectedReportId, resumeSession } = useStore();
 
   const [summaryData, setSummaryData] = useState<DashboardSummary | null>(null);
   const [loadingSummary, setLoadingSummary] = useState(false);
+
+  const handleViewSession = async (session: any) => {
+    const rawStatus = (session.status || '').toLowerCase();
+    const sessionId = session.session_id || session.id;
+    if (rawStatus === 'running' || rawStatus === 'paused') {
+      await resumeSession(sessionId);
+      navigate(session.mode === 'human-ai' ? '/arena/practice' : '/arena/simulation');
+    } else {
+      navigate('/history');
+    }
+  };
+
+  const handlePauseSession = async (session: any) => {
+    const sessionId = session.session_id || session.id;
+    try {
+      await negotiationApi.pauseNegotiation(sessionId);
+      setSummaryData((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          recent_negotiations: prev.recent_negotiations.map((item) =>
+            (item.id === sessionId || item.session_id === sessionId)
+              ? { ...item, status: 'paused', outcome: 'Paused' }
+              : item
+          ),
+        };
+      });
+    } catch (err) {
+      console.error('Failed to pause negotiation:', err);
+    }
+  };
+
+  const handleResumeSession = async (session: any) => {
+    const sessionId = session.session_id || session.id;
+    try {
+      await negotiationApi.resumeSession(sessionId);
+      await resumeSession(sessionId);
+      navigate(session.mode === 'human-ai' ? '/arena/practice' : '/arena/simulation');
+    } catch (err) {
+      console.error('Failed to resume negotiation:', err);
+    }
+  };
+
+  const handleStopSession = async (session: any) => {
+    const sessionId = session.session_id || session.id;
+    try {
+      await negotiationApi.stopNegotiation(sessionId, 'stop');
+      setSummaryData((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          recent_negotiations: prev.recent_negotiations.map((item) =>
+            (item.id === sessionId || item.session_id === sessionId)
+              ? { ...item, status: 'terminated', outcome: 'Stopped' }
+              : item
+          ),
+        };
+      });
+    } catch (err) {
+      console.error('Failed to stop negotiation:', err);
+    }
+  };
+
+  const handleDeleteSession = async (session: any) => {
+    const sessionId = session.session_id || session.id;
+    if (!window.confirm('Are you sure you want to delete this negotiation session?')) return;
+    try {
+      await negotiationApi.deleteSession(sessionId);
+      setSummaryData((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          total_negotiations: Math.max(0, prev.total_negotiations - 1),
+          recent_negotiations: prev.recent_negotiations.filter(
+            (item) => item.id !== sessionId && item.session_id !== sessionId
+          ),
+        };
+      });
+    } catch (err) {
+      console.error('Failed to delete session:', err);
+    }
+  };
+
+  const handleViewReport = (session: any) => {
+    if (session.report_id) {
+      setSelectedReportId(session.report_id);
+    }
+    navigate('/reports');
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -410,7 +502,6 @@ export const DashboardScreen: React.FC = () => {
   const agreementsReached = summaryData?.agreements_reached ?? 0;
   const deadlocksDetected = summaryData?.deadlocks_detected ?? 0;
   const reportsGenerated = summaryData?.reports_generated ?? 0;
-  const currentNegotiations = summaryData?.current_negotiations ?? [];
   const recentNegotiations = summaryData?.recent_negotiations ?? [];
 
   return (
@@ -613,123 +704,65 @@ export const DashboardScreen: React.FC = () => {
           </div>
         </section>
 
-        {/* CURRENT & RECENT NEGOTIATIONS FROM LIVE BACKEND RESPONSE */}
-        <section className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-          <div className={`rounded-[23px] p-5 ${glassPrimary}`}>
-            <div className="mb-4 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Activity size={16} className="text-[#3B82F6]" />
-                <h2 className="text-[12px] font-semibold uppercase tracking-[0.12em] text-[#0F172A]">
-                  Current Negotiations
-                </h2>
-              </div>
-              <button
-                type="button"
-                onClick={() => navigate('/setup/scenario')}
-                className="flex items-center gap-1 text-[9.5px] font-semibold text-[#3B82F6] cursor-pointer"
-              >
-                Start Session <ArrowRight size={12} />
-              </button>
-            </div>
-
-            <div className="space-y-2.5">
-              {currentNegotiations.map((session) => (
-                <button
-                  key={session.id}
-                  type="button"
-                  onClick={() => navigate(session.mode === 'human-ai' ? '/arena/practice' : '/arena/simulation')}
-                  className={`group flex w-full items-center justify-between rounded-[17px] p-3 text-left transition-all hover:bg-white/72 ${glassInner} cursor-pointer`}
-                >
-                  <div className="flex min-w-0 items-center gap-3">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[12px] border border-[#3B82F6]/20 bg-[#3B82F6]/7 text-[#3B82F6]">
-                      <Activity size={15} />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="truncate text-[10.5px] font-semibold text-[#0F172A] capitalize">
-                        {session.scenario_id.replace('-', ' ')} Negotiation
-                      </p>
-                      <p className="mt-0.5 text-[9px] font-medium text-[#64748B]">
-                        {session.mode === 'human-ai' ? 'Human vs AI Practice' : 'AI vs AI Simulation'} • Round {session.current_round} of {session.max_rounds}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-3">
-                    <span className="rounded-full border border-[#3B82F6]/15 bg-[#3B82F6]/6 px-2 py-1 text-[8.5px] font-semibold text-[#3B82F6] capitalize">
-                      {session.status}
-                    </span>
-                    <ChevronRight size={14} className="text-[#94A3B8] transition-transform group-hover:translate-x-0.5" />
-                  </div>
-                </button>
-              ))}
-
-              {currentNegotiations.length === 0 && !loadingSummary && (
-                <div className="text-center py-6 text-xs text-slate-400 font-semibold bg-white/30 rounded-xl border border-white/50">
-                  No active negotiation sessions in progress.
+        {/* UNIFIED RECENT NEGOTIATIONS WITH 3-DOT ACTION MENU */}
+        <section className="w-full">
+          <div className={`rounded-[23px] p-6 ${glassPrimary}`}>
+            <div className="mb-5 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-8 w-8 items-center justify-center rounded-[10px] bg-[#3B82F6]/10 text-[#3B82F6]">
+                  <Clock size={17} />
                 </div>
-              )}
-            </div>
-          </div>
-
-          <div className={`rounded-[23px] p-5 ${glassPrimary}`}>
-            <div className="mb-4 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Clock size={16} className="text-[#3B82F6]" />
-                <h2 className="text-[12px] font-semibold uppercase tracking-[0.12em] text-[#0F172A]">
-                  Recent Negotiations
-                </h2>
+                <div>
+                  <h2 className="text-[13px] font-bold uppercase tracking-[0.12em] text-[#0F172A]">
+                    Recent Negotiations
+                  </h2>
+                  <p className="text-[10px] font-medium text-[#64748B]">
+                    Active, paused, and completed negotiation lifecycles
+                  </p>
+                </div>
               </div>
-              <button
-                type="button"
-                onClick={() => navigate('/reports')}
-                className="flex items-center gap-1 text-[9.5px] font-semibold text-[#3B82F6] cursor-pointer"
-              >
-                View All Reports <ArrowRight size={12} />
-              </button>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => navigate('/history')}
+                  className="flex items-center gap-1 text-[10px] font-bold text-[#3B82F6] hover:underline cursor-pointer"
+                >
+                  View Full History <ArrowRight size={13} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigate('/setup/scenario')}
+                  className="flex items-center gap-1.5 rounded-full border border-[#3B82F6]/20 bg-white/60 px-3.5 py-1.5 text-[10px] font-bold text-[#3B82F6] backdrop-blur-md transition-all hover:bg-white cursor-pointer"
+                >
+                  <Play size={11} fill="currentColor" /> Start New Session
+                </button>
+              </div>
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-3">
               {recentNegotiations.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => {
-                    setSelectedReportId(item.id);
-                    navigate('/reports');
-                  }}
-                  className={`flex w-full items-center justify-between rounded-[17px] p-3 text-left transition-all hover:bg-white/72 ${glassInner} cursor-pointer`}
-                >
-                  <div className="flex min-w-0 items-center gap-3">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[12px] border border-[#C86D51]/15 bg-[#C86D51]/6 text-[#C86D51]">
-                      <FileText size={15} />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="truncate text-[10.5px] font-semibold text-[#0F172A]">
-                        {item.scenario_title}
-                      </p>
-                      <p className="mt-0.5 text-[9px] font-medium text-[#64748B]">
-                        {item.mode === 'human-ai' ? 'Human vs AI Practice' : 'AI vs AI Simulation'}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex shrink-0 items-center gap-3">
-                    <span className={`rounded-full border px-2 py-1 text-[8px] font-semibold ${item.outcome === 'Agreement Reached'
-                        ? 'border-emerald-200 bg-emerald-50 text-emerald-600'
-                        : item.outcome === 'Deadlock'
-                          ? 'border-red-200 bg-red-50 text-red-600'
-                          : 'border-slate-200 bg-slate-50 text-slate-600'
-                      }`}>
-                      {item.outcome}
-                    </span>
-                    <ChevronRight size={14} className="text-[#94A3B8]" />
-                  </div>
-                </button>
+                <RecentNegotiationItem
+                  key={item.id || item.session_id}
+                  item={item}
+                  onView={() => handleViewSession(item)}
+                  onPause={() => handlePauseSession(item)}
+                  onResume={() => handleResumeSession(item)}
+                  onStop={() => handleStopSession(item)}
+                  onDelete={() => handleDeleteSession(item)}
+                  onViewReport={() => handleViewReport(item)}
+                />
               ))}
 
               {recentNegotiations.length === 0 && !loadingSummary && (
-                <div className="text-center py-6 text-xs text-slate-400 font-semibold bg-white/30 rounded-xl border border-white/50">
-                  No completed negotiation reports yet.
+                <div className="text-center py-10 text-xs text-slate-400 font-semibold bg-white/30 rounded-2xl border border-white/50 space-y-2">
+                  <Activity size={24} className="mx-auto text-slate-300 mb-1" />
+                  <p>No negotiation sessions recorded yet.</p>
+                  <button
+                    onClick={() => navigate('/setup/scenario')}
+                    className="inline-flex items-center gap-1 text-[11px] font-bold text-[#3B82F6] hover:underline cursor-pointer pt-1"
+                  >
+                    Start your first negotiation <ArrowRight size={12} />
+                  </button>
                 </div>
               )}
             </div>
@@ -737,6 +770,313 @@ export const DashboardScreen: React.FC = () => {
         </section>
       </div>
     </main>
+  );
+};
+
+/* ============================================================
+   RECENT NEGOTIATION ITEM COMPONENT WITH 3-DOT MENU
+============================================================ */
+
+interface RecentNegotiationItemProps {
+  item: any;
+  onView: () => void;
+  onPause: () => void;
+  onResume: () => void;
+  onStop: () => void;
+  onDelete: () => void;
+  onViewReport: () => void;
+}
+
+const RecentNegotiationItem: React.FC<RecentNegotiationItemProps> = ({
+  item,
+  onView,
+  onPause,
+  onResume,
+  onStop,
+  onDelete,
+  onViewReport,
+}) => {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    if (menuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [menuOpen]);
+
+  const rawStatus = (item.status || '').toLowerCase();
+  const isRunning = rawStatus === 'running';
+  const isPaused = rawStatus === 'paused';
+  const isStopped = rawStatus === 'terminated' || rawStatus === 'stopped';
+  const isFinished = rawStatus === 'finished' || rawStatus === 'deadlock';
+
+  const statusBadge = () => {
+    if (isRunning) {
+      return (
+        <span className="flex items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50/80 px-2.5 py-1 text-[9px] font-bold text-blue-600">
+          <span className="h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse" />
+          Running
+        </span>
+      );
+    }
+    if (isPaused) {
+      return (
+        <span className="flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50/80 px-2.5 py-1 text-[9px] font-bold text-amber-600">
+          <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+          Paused
+        </span>
+      );
+    }
+    if (isStopped) {
+      return (
+        <span className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-100/80 px-2.5 py-1 text-[9px] font-bold text-slate-600">
+          Stopped
+        </span>
+      );
+    }
+    if (item.outcome === 'Agreement Reached' || (isFinished && item.outcome !== 'Deadlock')) {
+      return (
+        <span className="flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50/80 px-2.5 py-1 text-[9px] font-bold text-emerald-600">
+          <CheckCircle2 size={11} />
+          Agreement Reached
+        </span>
+      );
+    }
+    if (item.outcome === 'Deadlock' || rawStatus === 'deadlock') {
+      return (
+        <span className="flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50/80 px-2.5 py-1 text-[9px] font-bold text-red-600">
+          <AlertTriangle size={11} />
+          Deadlock
+        </span>
+      );
+    }
+    return (
+      <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[9px] font-bold text-slate-600 capitalize">
+        {item.status || 'Active'}
+      </span>
+    );
+  };
+
+  const agentsDisplay = item.agent_names?.length
+    ? item.agent_names.join(' vs ')
+    : item.scenario_id === 'vendor-pricing'
+      ? 'Buyer Agent vs Vendor Agent'
+      : item.scenario_id === 'job-offer'
+        ? 'Recruiter Agent vs Candidate Agent'
+        : 'Department Head Agent vs Project Manager Agent vs Finance Manager Agent';
+
+  const formattedDate = item.updated_at || item.created_at
+    ? new Date(item.updated_at || item.created_at).toLocaleDateString([], {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : '';
+
+  return (
+    <div
+      className={`group relative flex items-center justify-between rounded-[18px] p-4 transition-all hover:bg-white/80 ${glassInner}`}
+    >
+      <div className="flex min-w-0 flex-1 items-center gap-4 cursor-pointer" onClick={onView}>
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] border border-blue-500/20 bg-blue-500/10 text-blue-600">
+          {isFinished ? <FileText size={18} /> : <Activity size={18} />}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="truncate text-[12px] font-bold text-[#0F172A]">
+              {item.scenario_title || item.scenario_id?.replace('-', ' ').toUpperCase()}
+            </h3>
+            <span className="text-[9.5px] font-semibold text-[#64748B]">
+              • {item.mode === 'human-ai' ? 'Human vs AI Practice' : 'AI vs AI Simulation'}
+            </span>
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-[#64748B]">
+            <span className="font-semibold text-slate-700">{agentsDisplay}</span>
+            <span>• Round {item.current_round || item.rounds_completed || 1} of {item.max_rounds || 20}</span>
+            {formattedDate && <span>• {formattedDate}</span>}
+          </div>
+        </div>
+      </div>
+
+      <div className="flex shrink-0 items-center gap-3 pl-3">
+        {statusBadge()}
+
+        {/* 3-Dot Action Menu Button */}
+        <div className="relative" ref={menuRef}>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setMenuOpen(!menuOpen);
+            }}
+            className="flex h-8 w-8 items-center justify-center rounded-full hover:bg-slate-200/60 text-slate-600 transition-colors cursor-pointer border-none bg-transparent"
+            title="Negotiation Options"
+          >
+            <span className="text-[16px] font-bold leading-none">⋮</span>
+          </button>
+
+          {menuOpen && (
+            <div className="absolute right-0 top-9 z-30 w-44 rounded-xl border border-slate-200/80 bg-white/95 py-1.5 shadow-xl backdrop-blur-md animate-in fade-in zoom-in-95 duration-100 text-[11px] font-semibold text-slate-700">
+              {/* RUNNING MENU */}
+              {isRunning && (
+                <>
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onView();
+                    }}
+                    className="flex w-full items-center gap-2 px-3.5 py-2 hover:bg-slate-100/80 text-left border-none bg-transparent cursor-pointer text-blue-600 font-bold"
+                  >
+                    <Activity size={13} /> View Negotiation
+                  </button>
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onPause();
+                    }}
+                    className="flex w-full items-center gap-2 px-3.5 py-2 hover:bg-slate-100/80 text-left border-none bg-transparent cursor-pointer text-amber-600"
+                  >
+                    <Pause size={13} /> Pause Negotiation
+                  </button>
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onStop();
+                    }}
+                    className="flex w-full items-center gap-2 px-3.5 py-2 hover:bg-slate-100/80 text-left border-none bg-transparent cursor-pointer text-red-600"
+                  >
+                    <Square size={13} /> Stop Negotiation
+                  </button>
+                </>
+              )}
+
+              {/* PAUSED MENU */}
+              {isPaused && (
+                <>
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onView();
+                    }}
+                    className="flex w-full items-center gap-2 px-3.5 py-2 hover:bg-slate-100/80 text-left border-none bg-transparent cursor-pointer text-blue-600 font-bold"
+                  >
+                    <Activity size={13} /> View Negotiation
+                  </button>
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onResume();
+                    }}
+                    className="flex w-full items-center gap-2 px-3.5 py-2 hover:bg-slate-100/80 text-left border-none bg-transparent cursor-pointer text-emerald-600"
+                  >
+                    <Play size={13} /> Resume Negotiation
+                  </button>
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onStop();
+                    }}
+                    className="flex w-full items-center gap-2 px-3.5 py-2 hover:bg-slate-100/80 text-left border-none bg-transparent cursor-pointer text-red-600"
+                  >
+                    <Square size={13} /> Stop Negotiation
+                  </button>
+                </>
+              )}
+
+              {/* STOPPED MENU */}
+              {isStopped && (
+                <>
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onView();
+                    }}
+                    className="flex w-full items-center gap-2 px-3.5 py-2 hover:bg-slate-100/80 text-left border-none bg-transparent cursor-pointer text-slate-800"
+                  >
+                    <FileText size={13} /> View Negotiation
+                  </button>
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onDelete();
+                    }}
+                    className="flex w-full items-center gap-2 px-3.5 py-2 hover:bg-red-50 text-left border-none bg-transparent cursor-pointer text-red-600"
+                  >
+                    <X size={13} /> Delete Negotiation
+                  </button>
+                </>
+              )}
+
+              {/* COMPLETED / FINISHED MENU */}
+              {isFinished && (
+                <>
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onView();
+                    }}
+                    className="flex w-full items-center gap-2 px-3.5 py-2 hover:bg-slate-100/80 text-left border-none bg-transparent cursor-pointer text-slate-800"
+                  >
+                    <FileText size={13} /> View Negotiation
+                  </button>
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onViewReport();
+                    }}
+                    className="flex w-full items-center gap-2 px-3.5 py-2 hover:bg-slate-100/80 text-left border-none bg-transparent cursor-pointer text-emerald-600 font-bold"
+                  >
+                    <CheckCircle2 size={13} /> View Report
+                  </button>
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onDelete();
+                    }}
+                    className="flex w-full items-center gap-2 px-3.5 py-2 hover:bg-red-50 text-left border-none bg-transparent cursor-pointer text-red-600"
+                  >
+                    <X size={13} /> Delete Negotiation
+                  </button>
+                </>
+              )}
+
+              {!isRunning && !isPaused && !isStopped && !isFinished && (
+                <>
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onView();
+                    }}
+                    className="flex w-full items-center gap-2 px-3.5 py-2 hover:bg-slate-100/80 text-left border-none bg-transparent cursor-pointer text-slate-800"
+                  >
+                    <Activity size={13} /> View Negotiation
+                  </button>
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onDelete();
+                    }}
+                    className="flex w-full items-center gap-2 px-3.5 py-2 hover:bg-red-50 text-left border-none bg-transparent cursor-pointer text-red-600"
+                  >
+                    <X size={13} /> Delete Negotiation
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 };
 

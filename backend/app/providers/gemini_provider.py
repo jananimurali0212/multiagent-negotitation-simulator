@@ -1,6 +1,6 @@
 import json
 import logging
-from typing import Optional
+from typing import Optional, Dict, Any
 from app.core.config import settings
 from app.schemas.arena import AgentDecision
 from app.providers.base import BaseLLMProvider, LLMProviderError
@@ -43,6 +43,8 @@ class GeminiProvider(BaseLLMProvider):
         agent_role: str,
         current_round: int,
         scenario_id: str,
+        agent_data: Optional[Dict[str, Any]] = None,
+        session_id: Optional[str] = None,
     ) -> AgentDecision:
         if not self.client:
             raise LLMProviderError(

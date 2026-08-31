@@ -137,35 +137,66 @@ export const negotiationApi = {
     }),
   getSession: (sessionId: string) =>
     apiRequest<any>(`/negotiations/${sessionId}`),
+  updateAgents: (sessionId: string, agents: any[]) =>
+    apiRequest<any>(`/negotiations/${sessionId}/agents`, {
+      method: 'PUT',
+      body: JSON.stringify({ agents }),
+    }),
+  updateGoalsConstraints: (sessionId: string, payload: any[]) =>
+    apiRequest<any>(`/negotiations/${sessionId}/goals-constraints`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
   listSessions: () =>
     apiRequest<any[]>('/negotiations'),
+  deleteSession: (sessionId: string) =>
+    apiRequest<{ status: string; session_id: string }>(`/negotiations/${sessionId}`, {
+      method: 'DELETE',
+    }),
+  bulkDelete: (sessionIds?: string[], deleteAll: boolean = false) =>
+    apiRequest<{ status: string; deleted_count: number }>('/negotiations/bulk-delete', {
+      method: 'POST',
+      body: JSON.stringify({ session_ids: sessionIds, delete_all: deleteAll }),
+    }),
+  resumeSession: (sessionId: string) =>
+    apiRequest<any>(`/negotiations/${sessionId}/resume`, {
+      method: 'POST',
+    }),
+  stopNegotiation: (sessionId: string, action: string = 'stop') =>
+    apiRequest<NegotiationStepResponse>(`/negotiations/${sessionId}/stop?action=${action}`, {
+      method: 'POST',
+    }),
+  pauseNegotiation: (sessionId: string) =>
+    apiRequest<NegotiationStepResponse>(`/negotiations/${sessionId}/stop?action=pause`, {
+      method: 'POST',
+    }),
 };
 
 // Dashboard API
+export interface DashboardRecentNegotiation {
+  id: string;
+  session_id: string;
+  scenario_id: string;
+  scenario_title: string;
+  mode: string;
+  status: string;
+  outcome: string;
+  current_round: number;
+  max_rounds: number;
+  rounds_completed: number;
+  agents?: Array<{ name: string; role: string; avatar: string }>;
+  agent_names?: string[];
+  report_id?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface DashboardSummary {
   total_negotiations: number;
   agreements_reached: number;
   deadlocks_detected: number;
   reports_generated: number;
-  current_negotiations: Array<{
-    id: string;
-    scenario_id: string;
-    mode: string;
-    status: string;
-    current_round: number;
-    max_rounds: number;
-    updated_at?: string;
-  }>;
-  recent_negotiations: Array<{
-    id: string;
-    session_id: string;
-    scenario_id: string;
-    scenario_title: string;
-    mode: string;
-    outcome: string;
-    rounds_completed: number;
-    created_at?: string;
-  }>;
+  recent_negotiations: DashboardRecentNegotiation[];
 }
 
 export const dashboardApi = {
@@ -197,4 +228,13 @@ export interface OutcomeReport {
 export const reportApi = {
   list: () => apiRequest<OutcomeReport[]>('/reports'),
   get: (reportId: string) => apiRequest<OutcomeReport>(`/reports/${reportId}`),
+  delete: (reportId: string) =>
+    apiRequest<{ status: string; report_id: string }>(`/reports/${reportId}`, {
+      method: 'DELETE',
+    }),
+  bulkDelete: (reportIds?: string[], deleteAll: boolean = false) =>
+    apiRequest<{ status: string; deleted_count: number }>('/reports/bulk-delete', {
+      method: 'POST',
+      body: JSON.stringify({ report_ids: reportIds, delete_all: deleteAll }),
+    }),
 };

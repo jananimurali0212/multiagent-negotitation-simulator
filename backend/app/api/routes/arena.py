@@ -25,6 +25,16 @@ async def execute_simulation_step(
     if session.user_id != current_user.id:
         raise ForbiddenError()
 
+    if session.status == "paused":
+        return TurnResultResponse(
+            status="paused",
+            round=session.current_round,
+            current_turn_speaker=session.current_speaker or "",
+            message=None,
+            agreement_reached=False,
+            final_terms=session.final_terms,
+        )
+
     result = await orchestrator.execute_turn(session_id=session.id, db=db)
     return TurnResultResponse(**result)
 
@@ -50,27 +60,48 @@ async def submit_user_turn(
     return TurnResultResponse(**result)
 
 
+from app.orchestration.runner import stop_background_simulation
+
+
 @router.post("/{session_id}/stop", response_model=TurnResultResponse)
 async def stop_negotiation(
     session_id: str,
+    action: str = "pause",
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Manually stops an ongoing negotiation session."""
+    """Manually pauses or stops an ongoing negotiation session."""
     session = await _load_full_session(session_id, db)
     if session.user_id != current_user.id:
         raise ForbiddenError()
 
-    session.status = "terminated"
+    # Always halt background execution task
+    stop_background_simulation(session.id)
+
+    if action in ["finalize", "report", "stop", "terminate"]:
+        session.status = "terminated"
+        await db.commit()
+
+        from app.reports.report_generator import ReportGenerator
+        await ReportGenerator.generate_and_save_report(session, "Stopped by User", db)
+
+        return TurnResultResponse(
+            status="terminated",
+            round=session.current_round,
+            current_turn_speaker="System",
+            message=None,
+            agreement_reached=False,
+            final_terms=session.final_terms,
+        )
+
+    # Default action: pause
+    session.status = "paused"
     await db.commit()
 
-    from app.reports.report_generator import ReportGenerator
-    await ReportGenerator.generate_and_save_report(session, "Stopped by User", db)
-
     return TurnResultResponse(
-        status="terminated",
+        status="paused",
         round=session.current_round,
-        current_turn_speaker="System",
+        current_turn_speaker=session.current_speaker or "",
         message=None,
         agreement_reached=False,
         final_terms=session.final_terms,

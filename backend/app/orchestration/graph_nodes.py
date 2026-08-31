@@ -40,10 +40,18 @@ class LangGraphNegotiationEngine:
         speaker_idx = state["current_speaker_index"] % len(agents)
         active_agent_dict = agents[speaker_idx]
 
+        # Dynamic scenario objective lookup
+        scenario_objs = {
+            "vendor-pricing": "Agree on licensing fees per user, support tier level, and payment terms.",
+            "job-offer": "Agree on base salary, stock options grant, and weekly remote work days schedule.",
+            "budget-allocation": "Reach consensus on total capital distribution across key business priorities within approved limits.",
+        }
+        scenario_obj = scenario_objs.get(state["scenario_id"], "Reach mutual commercial agreement within configured constraints.")
+
         # Construct system prompt
         prompt = build_system_prompt(
             scenario_title=state["scenario_id"].replace("-", " ").title(),
-            scenario_objective="Reach mutual commercial agreement.",
+            scenario_objective=scenario_obj,
             agent_name=active_agent_dict["name"],
             agent_role=active_agent_dict["role"],
             personality=active_agent_dict["personality"],
@@ -52,18 +60,33 @@ class LangGraphNegotiationEngine:
             constraints=active_agent_dict.get("constraints", []),
             negotiation_parameters=active_agent_dict.get("negotiation_parameters", {}),
             public_transcript=state["messages"],
+            other_agents=agents,
             scenario_id=state["scenario_id"],
             current_round=state["current_round"],
             session_id=state.get("session_id"),
         )
 
-        # Generate LLM decision
+        # Safe Development Logs before LLM generation
+        logger.info(
+            f"\n[AI_REASONING_PIPELINE]\n"
+            f"  SESSION ID: {state.get('session_id')}\n"
+            f"  SCENARIO ID: {state['scenario_id']}\n"
+            f"  CURRENT SPEAKER: {active_agent_dict['name']}\n"
+            f"  AGENT NAME: {active_agent_dict['name']}\n"
+            f"  CONFIGURED GOAL: {[g.get('text') for g in active_agent_dict.get('goals', []) if isinstance(g, dict)]}\n"
+            f"  CONFIGURED CONSTRAINTS: {[{c.get('label'): c.get('value')} for c in active_agent_dict.get('constraints', []) if isinstance(c, dict)]}\n"
+            f"  CONFIGURED NEGOTIATION PARAMETERS: {active_agent_dict.get('negotiation_parameters', {})}\n"
+            f"  CURRENT ROUND: {state['current_round']}\n"
+        )
+
+        # Generate LLM decision with active agent configuration
         raw_decision = await self.provider_manager.generate_decision(
             prompt=prompt,
             agent_personality=active_agent_dict["personality"],
             agent_role=active_agent_dict["role"],
             current_round=state["current_round"],
             scenario_id=state["scenario_id"],
+            agent_data=active_agent_dict,
             session_id=state.get("session_id"),
         )
 

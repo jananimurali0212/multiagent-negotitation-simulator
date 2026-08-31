@@ -60,7 +60,9 @@ class ConstraintRules:
 
         # Buyer Side: Must not offer or accept above maximum annual budget cap
         elif any(w in role_clean for w in ["procurement", "buyer", "purchasing"]):
-            max_budget = cls._extract_param_value(agent, ["maxbudget", "max_budget", "budget cap", "maximum budget"])
+            max_budget = cls._extract_param_value(
+                agent, ["maxbudget", "max_budget", "budget cap", "maximum budget", "max price", "max_price", "price cap", "budget ceiling"]
+            )
             # Monthly pricing budget conversion: $120,000/yr for 150 users is $66.66/user/mo
             if max_budget is not None:
                 # If budget expressed as total yearly, evaluate monthly per-user limit assuming standard 150 seats baseline

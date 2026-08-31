@@ -8,6 +8,7 @@ class SessionCreatePayload(BaseModel):
     scenario_id: str = Field(..., description="ID of selected scenario (vendor-pricing, job-offer, budget-allocation)")
     mode: str = Field(..., description="Execution mode ('ai-ai' or 'human-ai')")
     human_role: Optional[str] = Field(None, description="Role of the human participant ('buyer' or 'vendor')")
+    agents: Optional[List[Dict[str, Any]]] = Field(None, description="Optional preconfigured agent configurations with goals, constraints, parameters")
 
 
 class UpdateAgentsPayload(BaseModel):
@@ -42,6 +43,10 @@ class SessionResponse(BaseModel):
     review_confirmed: bool
     status: str
     current_round: int
+    current_turn_index: int = 0
+    current_speaker: Optional[str] = ""
+    latest_offer: Optional[Dict[str, Any]] = None
+    latest_offer_sender: Optional[str] = ""
     max_rounds: int
     agreement_reached: bool
     final_terms: Optional[Dict[str, Any]] = None

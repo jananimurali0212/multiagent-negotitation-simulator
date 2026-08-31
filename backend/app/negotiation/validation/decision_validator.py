@@ -1,4 +1,5 @@
 import logging
+import re
 from typing import Dict, Any, Tuple, Optional
 from app.schemas.agent import AgentConfigSchema
 from app.schemas.arena import AgentDecision
@@ -87,12 +88,61 @@ class DecisionValidator:
         )
         decision.concession_percentage = concession_info["normalized_percentage"]
 
+        # 5. Validate & Repair Message Content Against Configured Boundaries
+        decision = cls._validate_and_repair_message_facts(state, active_agent, decision)
+
         NegotiationTelemetry.emit("decision_validated", state.session_id, active_agent.name, state.current_round, {
             "action": decision.action, "is_concession": concession_info.get("is_concession", False),
             "concession_pct": concession_info.get("normalized_percentage", 0.0),
         })
 
         return ValidationResult.valid_result("decision_validator"), decision, concession_info
+
+    @classmethod
+    def _validate_and_repair_message_facts(
+        cls,
+        state: NormalizedNegotiationState,
+        agent: AgentConfigSchema,
+        decision: AgentDecision,
+    ) -> AgentDecision:
+        """Validates that public message does not state unsupported factual numbers contradicting configured bounds."""
+        if not decision.message:
+            return decision
+
+        msg = decision.message
+        role_clean = agent.role.lower()
+
+        # Job Offer scenario checks
+        if state.scenario_id == "job-offer":
+            extracted_numbers = [float(n.replace(",", "")) for n in re.findall(r"\$([0-9]{2,3}(?:,[0-9]{3})+|\b[0-9]{5,7}\b)", msg)]
+            if any(w in role_clean for w in ["recruiter", "hr"]):
+                max_s = ConstraintRules._extract_param_value(agent, ["maxsalary", "max_salary", "grade cap", "budget"])
+                if max_s is not None:
+                    # If recruiter message mentions a number higher than their approved maximum budget cap
+                    for num in extracted_numbers:
+                        if num > max_s * 1.05:
+                            logger.warning(f"[FACT_REPAIR] Repaired recruiter message mentioning unsupported salary ${num:,.0f} > cap ${max_s:,.0f}")
+                            repaired_msg = re.sub(
+                                r"\$([0-9]{2,3}(?:,[0-9]{3})+|\b[0-9]{5,7}\b)",
+                                f"${max_s:,.0f}",
+                                msg
+                            )
+                            return decision.model_copy(update={"message": repaired_msg})
+            elif any(w in role_clean for w in ["candidate", "developer", "engineer"]):
+                min_s = ConstraintRules._extract_param_value(agent, ["minsalary", "min_salary", "competing offer", "floor"])
+                if min_s is not None:
+                    # If candidate message offers to accept a number lower than their hard minimum floor
+                    for num in extracted_numbers:
+                        if num < min_s * 0.95 and decision.action == "accept":
+                            logger.warning(f"[FACT_REPAIR] Repaired candidate message mentioning salary below floor ${num:,.0f} < floor ${min_s:,.0f}")
+                            repaired_msg = re.sub(
+                                r"\$([0-9]{2,3}(?:,[0-9]{3})+|\b[0-9]{5,7}\b)",
+                                f"${min_s:,.0f}",
+                                msg
+                            )
+                            return decision.model_copy(update={"message": repaired_msg})
+
+        return decision
 
     @classmethod
     def _attempt_safe_correction(
@@ -118,26 +168,30 @@ class DecisionValidator:
             )
             return True, repaired
 
-        # Case B: Constraint floor/ceiling violation -> Clamp numeric value to boundary limit
+        # Case B: Constraint floor/ceiling violation -> Clamp numeric value to configured boundary limit
         if failed_res.error_category == ValidationErrorCategory.HARD_CONSTRAINT_VIOLATION and decision.offer:
             repaired_offer = dict(decision.offer)
             
             if state.scenario_id == "vendor-pricing":
                 if any(w in role_clean for w in ["sales", "vendor", "seller"]):
-                    min_p = ConstraintRules._extract_param_value(agent, ["minprice", "min_price"]) or 55.0
-                    repaired_offer["price"] = f"${min_p:.0f}/user/month"
+                    min_p = ConstraintRules._extract_param_value(agent, ["minprice", "min_price", "targetprice", "target_price"])
+                    if min_p is not None:
+                        repaired_offer["price"] = f"${min_p:.0f}/user/month"
                 else:
-                    max_b = ConstraintRules._extract_param_value(agent, ["maxbudget", "max_budget"]) or 120000.0
-                    monthly_cap = max_b / (150 * 12) if max_b > 1000 else max_b
-                    repaired_offer["price"] = f"${monthly_cap:.0f}/user/month"
+                    max_b = ConstraintRules._extract_param_value(agent, ["maxbudget", "max_budget", "targetprice", "target_price"])
+                    if max_b is not None:
+                        monthly_cap = max_b / (150 * 12) if max_b > 1000 else max_b
+                        repaired_offer["price"] = f"${monthly_cap:.0f}/user/month"
 
             elif state.scenario_id == "job-offer":
                 if any(w in role_clean for w in ["recruiter", "hr"]):
-                    max_s = ConstraintRules._extract_param_value(agent, ["maxsalary", "max_salary"]) or 170000.0
-                    repaired_offer["salary"] = f"${max_s:,.0f}"
+                    max_s = ConstraintRules._extract_param_value(agent, ["maxsalary", "max_salary", "targetsalary", "target_salary"])
+                    if max_s is not None:
+                        repaired_offer["salary"] = f"${max_s:,.0f}"
                 else:
-                    min_s = ConstraintRules._extract_param_value(agent, ["minsalary", "min_salary"]) or 165000.0
-                    repaired_offer["salary"] = f"${min_s:,.0f}"
+                    min_s = ConstraintRules._extract_param_value(agent, ["minsalary", "min_salary", "targetsalary", "target_salary"])
+                    if min_s is not None:
+                        repaired_offer["salary"] = f"${min_s:,.0f}"
 
             repaired = AgentDecision(
                 action="counteroffer",
@@ -147,6 +201,7 @@ class DecisionValidator:
                 concession_percentage=0.0,
                 confidence_score=0.9,
             )
+            repaired = cls._validate_and_repair_message_facts(state, agent, repaired)
             return True, repaired
 
         # Case C: Missing required dimensions or structural key alias mismatch -> Inject normalized defaults
@@ -165,17 +220,36 @@ class DecisionValidator:
                 concession_percentage=decision.concession_percentage or 0.0,
                 confidence_score=decision.confidence_score or 0.85,
             )
+            repaired = cls._validate_and_repair_message_facts(state, agent, repaired)
             return True, repaired
 
         return False, decision
 
     @classmethod
     def _generate_default_agent_offer(cls, scenario_id: str, agent: AgentConfigSchema) -> Dict[str, Any]:
-        """Generates baseline default offer based on agent target parameters."""
+        """Generates baseline default offer derived strictly from configured agent parameters."""
         params = agent.negotiation_parameters or {}
         if scenario_id == "vendor-pricing":
-            return {"price": str(params.get("targetPrice", "$55/user/month")), "paymentTerms": "Net-30"}
+            offer: Dict[str, Any] = {}
+            p = params.get("targetPrice") or params.get("minPrice") or params.get("maxBudget")
+            if p:
+                offer["price"] = str(p)
+            if "paymentTerms" in params:
+                offer["paymentTerms"] = str(params["paymentTerms"])
+            return offer
         elif scenario_id == "job-offer":
-            return {"salary": str(params.get("targetSalary", "$165,000"))}
+            offer = {}
+            s = params.get("targetSalary") or params.get("minSalary") or params.get("maxSalary")
+            if s:
+                offer["salary"] = str(s)
+            if "equity" in params or "stockOptions" in params:
+                offer["equity"] = str(params.get("equity") or params.get("stockOptions"))
+            if "remoteDays" in params or "workArrangement" in params:
+                offer["remoteDays"] = str(params.get("remoteDays") or params.get("workArrangement"))
+            return offer
         else:
-            return {"engineeringAllocation": "$200,000", "marketingAllocation": "$160,000", "allocation": "$140,000"}
+            offer = {}
+            alloc = params.get("targetAllocation") or params.get("minAllocation") or params.get("maxAllocation")
+            if alloc:
+                offer["allocation"] = str(alloc)
+            return offer

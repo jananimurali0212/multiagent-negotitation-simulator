@@ -22,33 +22,10 @@ PRESET_SCENARIOS_DATA = [
         ],
         "default_agents_data": [
             {
-                "agent_template_id": "buyer-crm",
-                "name": "Alex Rivera",
-                "role": "Procurement Director",
-                "avatar": "AR",
-                "personality": "Collaborative",
-                "experience": "High",
-                "negotiation_parameters": {
-                    "targetPrice": "$45/user/month",
-                    "maxBudget": "$120,000 / year",
-                    "paymentTerms": "Net-45",
-                    "deliveryRequirement": "Within 30 days"
-                },
-                "goals": [
-                    {"text": "Secure licensing fee below $45/user/month", "priority": "High"},
-                    {"text": "Obtain Gold support package at no extra cost", "priority": "Medium"},
-                    {"text": "Secure Net-45 payment terms", "priority": "Low"}
-                ],
-                "constraints": [
-                    {"label": "Maximum budget cap", "value": "$120,000 / year"},
-                    {"label": "Go-live timeline", "value": "Within 30 days"}
-                ]
-            },
-            {
                 "agent_template_id": "seller-crm",
-                "name": "Sarah Chen",
-                "role": "Enterprise Sales VP",
-                "avatar": "SC",
+                "name": "Vendor Agent",
+                "role": "Vendor Agent",
+                "avatar": "VA",
                 "personality": "Aggressive",
                 "experience": "Medium",
                 "negotiation_parameters": {
@@ -65,6 +42,29 @@ PRESET_SCENARIOS_DATA = [
                 "constraints": [
                     {"label": "Minimum user count", "value": "150 seats minimum"},
                     {"label": "Standard pricing sheet", "value": "$80/user list price"}
+                ]
+            },
+            {
+                "agent_template_id": "buyer-crm",
+                "name": "Buyer Agent",
+                "role": "Buyer Agent",
+                "avatar": "BA",
+                "personality": "Collaborative",
+                "experience": "High",
+                "negotiation_parameters": {
+                    "targetPrice": "$45/user/month",
+                    "maxBudget": "$120,000 / year",
+                    "paymentTerms": "Net-45",
+                    "deliveryRequirement": "Within 30 days"
+                },
+                "goals": [
+                    {"text": "Secure licensing fee below $45/user/month", "priority": "High"},
+                    {"text": "Obtain Gold support package at no extra cost", "priority": "Medium"},
+                    {"text": "Secure Net-45 payment terms", "priority": "Low"}
+                ],
+                "constraints": [
+                    {"label": "Maximum budget cap", "value": "$120,000 / year"},
+                    {"label": "Go-live timeline", "value": "Within 30 days"}
                 ]
             }
         ]
@@ -85,9 +85,9 @@ PRESET_SCENARIOS_DATA = [
         "default_agents_data": [
             {
                 "agent_template_id": "recruiter-hr",
-                "name": "Marcus Brody",
-                "role": "Lead HR Partner",
-                "avatar": "MB",
+                "name": "Recruiter Agent",
+                "role": "Recruiter Agent",
+                "avatar": "RA",
                 "personality": "Risk-Averse",
                 "experience": "High",
                 "negotiation_parameters": {
@@ -108,9 +108,9 @@ PRESET_SCENARIOS_DATA = [
             },
             {
                 "agent_template_id": "candidate-hr",
-                "name": "Elena Rostova",
-                "role": "Senior Developer Candidate",
-                "avatar": "ER",
+                "name": "Candidate Agent",
+                "role": "Candidate Agent",
+                "avatar": "CA",
                 "personality": "Collaborative",
                 "experience": "High",
                 "negotiation_parameters": {
@@ -146,31 +146,31 @@ PRESET_SCENARIOS_DATA = [
         ],
         "default_agents_data": [
             {
-                "agent_template_id": "finance-mgr",
-                "name": "David Vance",
-                "role": "VP of Finance",
-                "avatar": "DV",
-                "personality": "Risk-Averse",
-                "experience": "High",
+                "agent_template_id": "dept-head",
+                "name": "Department Head Agent",
+                "role": "Department Head Agent",
+                "avatar": "DH",
+                "personality": "Collaborative",
+                "experience": "Low",
                 "negotiation_parameters": {
-                    "maxAllocation": "$500,000 total pool",
-                    "targetAllocation": "Balanced 40/40/20 distribution"
+                    "targetAllocation": "$180,000",
+                    "minAllocation": "$130,000"
                 },
                 "goals": [
-                    {"text": "Keep total budget allocation strictly under $500k", "priority": "High"},
-                    {"text": "Maintain 15% emergency reserve buffer", "priority": "High"},
-                    {"text": "Ensure ROI metrics attached to all allocations", "priority": "Medium"}
+                    {"text": "Fund Q3 global user acquisition campaign ($180k)", "priority": "High"},
+                    {"text": "Co-sponsor engineering feature release launch", "priority": "Medium"},
+                    {"text": "Establish flexible milestone-based funding", "priority": "Low"}
                 ],
                 "constraints": [
-                    {"label": "Total Pool Ceiling", "value": "$500,000 absolute cap"},
-                    {"label": "Audit requirement", "value": "Detailed quarterly reporting"}
+                    {"label": "Campaign commit floor", "value": "$130,000 minimum"},
+                    {"label": "Agency contract", "value": "Non-cancelable retainers"}
                 ]
             },
             {
                 "agent_template_id": "pm-lead",
-                "name": "Priya Sharma",
-                "role": "Engineering Director",
-                "avatar": "PS",
+                "name": "Project Manager Agent",
+                "role": "Project Manager Agent",
+                "avatar": "PM",
                 "personality": "Aggressive",
                 "experience": "Medium",
                 "negotiation_parameters": {
@@ -188,24 +188,24 @@ PRESET_SCENARIOS_DATA = [
                 ]
             },
             {
-                "agent_template_id": "dept-head",
-                "name": "Liam Connor",
-                "role": "CMO / Marketing Lead",
-                "avatar": "LC",
-                "personality": "Collaborative",
-                "experience": "Low",
+                "agent_template_id": "finance-mgr",
+                "name": "Finance Manager Agent",
+                "role": "Finance Manager Agent",
+                "avatar": "FM",
+                "personality": "Risk-Averse",
+                "experience": "High",
                 "negotiation_parameters": {
-                    "targetAllocation": "$180,000",
-                    "minAllocation": "$130,000"
+                    "maxAllocation": "$500,000 total pool",
+                    "targetAllocation": "Balanced 40/40/20 distribution"
                 },
                 "goals": [
-                    {"text": "Fund Q3 global user acquisition campaign ($180k)", "priority": "High"},
-                    {"text": "Co-sponsor engineering feature release launch", "priority": "Medium"},
-                    {"text": "Establish flexible milestone-based funding", "priority": "Low"}
+                    {"text": "Keep total budget allocation strictly under $500k", "priority": "High"},
+                    {"text": "Maintain 15% emergency reserve buffer", "priority": "High"},
+                    {"text": "Ensure ROI metrics attached to all allocations", "priority": "Medium"}
                 ],
                 "constraints": [
-                    {"label": "Campaign commit floor", "value": "$130,000 minimum"},
-                    {"label": "Agency contract", "value": "Non-cancelable retainers"}
+                    {"label": "Total Pool Ceiling", "value": "$500,000 absolute cap"},
+                    {"label": "Audit requirement", "value": "Detailed quarterly reporting"}
                 ]
             }
         ]
@@ -214,7 +214,7 @@ PRESET_SCENARIOS_DATA = [
 
 
 async def seed_scenarios(db: AsyncSession) -> None:
-    """Seed the 3 pre-built enterprise scenarios into the database if not present."""
+    """Seed or update the 3 pre-built enterprise scenarios into the database with fixed agent names."""
     for data in PRESET_SCENARIOS_DATA:
         result = await db.execute(select(Scenario).where(Scenario.id == data["id"]))
         existing = result.scalar_one_or_none()
@@ -232,4 +232,10 @@ async def seed_scenarios(db: AsyncSession) -> None:
             )
             db.add(scenario)
             logger.info(f"Seeded scenario: {data['id']}")
+        else:
+            existing.title = data["title"]
+            existing.description = data["description"]
+            existing.objective = data["objective"]
+            existing.default_agents_data = data["default_agents_data"]
+            logger.info(f"Updated scenario default agents: {data['id']}")
     await db.commit()

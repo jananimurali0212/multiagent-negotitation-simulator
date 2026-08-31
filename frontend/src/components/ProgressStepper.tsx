@@ -117,19 +117,7 @@ export const ProgressStepper: React.FC = () => {
     const stepId = getStepIdForPath(destination);
 
     if (stepId === 'OUTCOME') {
-      if (reports.length === 0) {
-        const firstIncompleteId = getFirstIncompleteStepId();
-        const actionRoute = getRouteForStepId(firstIncompleteId);
-        setGuardModal({
-          isOpen: true,
-          title: 'No reports yet',
-          message: 'Complete a negotiation to generate an outcome report.',
-          actionText: 'Start Setup',
-          actionRoute
-        });
-      } else {
-        navigate(destination);
-      }
+      navigate(destination);
       return;
     }
 

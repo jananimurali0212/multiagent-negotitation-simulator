@@ -16,6 +16,8 @@ import {
   X,
   Compass,
   FileText,
+  AlertTriangle,
+  Clock,
 } from 'lucide-react';
 
 interface SimulationMessage {
@@ -32,21 +34,48 @@ interface SimulationMessage {
 
 export const SimulationArenaScreen: React.FC = () => {
   const navigate = useNavigate();
-  const { selectedScenario, configuredAgents, setSelectedReportId } = useStore();
+  const {
+    selectedScenario,
+    configuredAgents,
+    setSelectedReportId,
+    activeSessionId,
+    setActiveSessionId,
+    setActiveSessionStatus,
+  } = useStore();
 
-  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(activeSessionId);
   const [messages, setMessages] = useState<SimulationMessage[]>([]);
   const [currentRound, setCurrentRound] = useState(1);
-  const [status, setStatus] = useState<'setup' | 'running' | 'finished' | 'deadlock' | 'terminated'>('running');
+  const [status, setStatus] = useState<'setup' | 'running' | 'paused' | 'finished' | 'deadlock' | 'terminated'>('running');
   const [isPaused, setIsPaused] = useState(false);
   const [isExecutingStep, setIsExecutingStep] = useState(false);
   const [currentSpeakerName, setCurrentSpeakerName] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [isStopModalOpen, setIsStopModalOpen] = useState(false);
+  const [isCompletedModalOpen, setIsCompletedModalOpen] = useState(false);
+  const [redirectCountdown, setRedirectCountdown] = useState(4);
+
+  // Auto-redirect countdown when completion modal opens
+  useEffect(() => {
+    if (!isCompletedModalOpen) return;
+    const interval = setInterval(() => {
+      setRedirectCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          if (sessionId) setSelectedReportId(sessionId);
+          navigate('/reports');
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [isCompletedModalOpen, sessionId]);
 
   const feedRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mountedRef = useRef(true);
+  const initLockRef = useRef(false);
 
   // Refs for async loop state freshness
   const isPausedRef = useRef(isPaused);
@@ -67,21 +96,48 @@ export const SimulationArenaScreen: React.FC = () => {
   useEffect(() => { isExecutingStepRef.current = isExecutingStep; }, [isExecutingStep]);
   useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
 
-  // Agent 0 (Buyer / Candidate / Finance Lead)
-  const agent0 = configuredAgents[0] || selectedScenario?.defaultAgents?.[0] || {
-    name: selectedScenario?.id === 'job-offer' ? 'Marcus Brody' : selectedScenario?.id === 'budget-allocation' ? 'David Vance' : 'Alex Rivera',
-    role: selectedScenario?.id === 'job-offer' ? 'Recruiter' : selectedScenario?.id === 'budget-allocation' ? 'VP of Finance' : 'Procurement Director',
-    avatar: selectedScenario?.id === 'job-offer' ? 'MB' : selectedScenario?.id === 'budget-allocation' ? 'DV' : 'AR',
-    personality: 'Aggressive',
+  // Agent defaults matching fixed scenario requirements
+  const defaultAgent0 = () => {
+    if (selectedScenario?.id === 'job-offer') {
+      return { name: 'Recruiter Agent', role: 'Recruiter Agent', avatar: 'RA', personality: 'Risk-Averse' };
+    }
+    if (selectedScenario?.id === 'budget-allocation') {
+      return { name: 'Department Head Agent', role: 'Department Head Agent', avatar: 'DH', personality: 'Collaborative' };
+    }
+    return { name: 'Buyer Agent', role: 'Buyer Agent', avatar: 'BA', personality: 'Collaborative' };
   };
 
-  // Agent 1 (Vendor / Recruiter / Department Lead)
-  const agent1 = configuredAgents[1] || selectedScenario?.defaultAgents?.[1] || {
-    name: selectedScenario?.id === 'job-offer' ? 'Elena Rostova' : selectedScenario?.id === 'budget-allocation' ? 'Priya Sharma' : 'Sarah Chen',
-    role: selectedScenario?.id === 'job-offer' ? 'Candidate' : selectedScenario?.id === 'budget-allocation' ? 'Engineering Director' : 'Vendor Director',
-    avatar: selectedScenario?.id === 'job-offer' ? 'ER' : selectedScenario?.id === 'budget-allocation' ? 'PS' : 'SC',
-    personality: 'Collaborative',
+  const defaultAgent1 = () => {
+    if (selectedScenario?.id === 'job-offer') {
+      return { name: 'Candidate Agent', role: 'Candidate Agent', avatar: 'CA', personality: 'Collaborative' };
+    }
+    if (selectedScenario?.id === 'budget-allocation') {
+      return { name: 'Project Manager Agent', role: 'Project Manager Agent', avatar: 'PM', personality: 'Aggressive' };
+    }
+    return { name: 'Vendor Agent', role: 'Vendor Agent', avatar: 'VA', personality: 'Aggressive' };
   };
+
+  const agent0 = configuredAgents[0] || selectedScenario?.defaultAgents?.[0] || defaultAgent0();
+  const agent1 = configuredAgents[1] || selectedScenario?.defaultAgents?.[1] || defaultAgent1();
+
+  const [isNavGuardOpen, setIsNavGuardOpen] = useState(false);
+
+  // Intercept browser back button when negotiation is active
+  useEffect(() => {
+    const handlePopState = (event: PopStateEvent) => {
+      if (statusRef.current === 'running' || statusRef.current === 'paused') {
+        event.preventDefault();
+        window.history.pushState(null, '', window.location.pathname);
+        setIsNavGuardOpen(true);
+      }
+    };
+
+    window.history.pushState(null, '', window.location.pathname);
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, []);
 
   // Clear pending timer
   const clearLoopTimer = () => {
@@ -94,26 +150,61 @@ export const SimulationArenaScreen: React.FC = () => {
   // Helper for Agent Display Role in Chat
   const getAgentRoleTitle = (isAgent0: boolean, rawRole?: string) => {
     const roleText = rawRole || (isAgent0 ? agent0.role : agent1.role) || 'Agent';
-    if (roleText.toLowerCase().includes('agent')) {
-      return roleText;
-    }
-    return `${roleText} Agent`;
+    return roleText;
   };
 
-  // 1. Initialize session using user-filled details
+  // 1. Initialize or restore session
   const initSession = async () => {
-    if (!selectedScenario) return;
+    if (!selectedScenario || initLockRef.current) return;
+    initLockRef.current = true;
     clearLoopTimer();
-    setMessages([]);
-    setCurrentRound(1);
-    setStatus('running');
-    setIsPaused(false);
-    setIsExecutingStep(false);
-    setErrorMessage('');
-    setIsStopModalOpen(false);
 
     try {
-      // Build agents payload from configuredAgents (user-filled details)
+      // Check if we have an active existing session ID
+      if (activeSessionId) {
+        console.log('[AI-AI][RESTORE] Loading existing session:', activeSessionId);
+        const existingSession = await negotiationApi.getSession(activeSessionId);
+        if (existingSession && mountedRef.current) {
+          setSessionId(existingSession.id);
+          setCurrentRound(existingSession.current_round || 1);
+          const sessStatus = existingSession.status || 'running';
+          setStatus(sessStatus as any);
+          setIsPaused(sessStatus === 'paused');
+          setActiveSessionStatus(sessStatus);
+
+          const restoredMsgs: SimulationMessage[] = (existingSession.messages || []).map((m: any) => ({
+            id: m.id || `msg-${Math.random()}`,
+            sender: m.sender,
+            role: m.role,
+            avatar: m.avatar,
+            content: m.content,
+            offerData: m.offer_data,
+            round: m.round || 1,
+            timestamp: m.timestamp ? new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            isAgent0: (m.sender || '').toLowerCase().includes((agent0.name || '').toLowerCase()),
+          }));
+          setMessages(restoredMsgs);
+          setCurrentSpeakerName(existingSession.current_turn_speaker || agent0.name);
+
+          // If session is ready, send start call
+          if (sessStatus === 'ready' || sessStatus === 'setup_review') {
+            await apiRequest(`/negotiations/${existingSession.id}/start`, { method: 'POST' });
+            setStatus('running');
+            setActiveSessionStatus('running');
+          }
+          return;
+        }
+      }
+
+      // Create new session ONLY if no existing active session
+      setMessages([]);
+      setCurrentRound(1);
+      setStatus('running');
+      setIsPaused(false);
+      setIsExecutingStep(false);
+      setErrorMessage('');
+      setIsStopModalOpen(false);
+
       const agentsSource = configuredAgents && configuredAgents.length >= 2 ? configuredAgents : selectedScenario.defaultAgents || [];
       const agentsPayload = agentsSource.map((ag) => ({
         agent_template_id: ag.id || 'agent',
@@ -140,26 +231,27 @@ export const SimulationArenaScreen: React.FC = () => {
         constraints: (ag.constraints || []).map((c) => ({ label: c.label, value: c.value })),
       }));
 
-      console.log('[AI-AI][CREATE] Initializing session with custom agents for scenario:', selectedScenario.id);
+      console.log('[AI-AI][CREATE] Creating single session for scenario:', selectedScenario.id);
       const res = await negotiationApi.createSession({
         scenario_id: selectedScenario.id,
         mode: 'ai-ai',
         agents: agentsPayload,
       });
       console.log('[AI-AI][CREATE_SUCCESS] Session ID created:', res.id);
+
       setSessionId(res.id);
+      setActiveSessionId(res.id);
       setCurrentRound(res.current_round || 1);
       setCurrentSpeakerName(agent0.name);
 
-      console.log('[AI-AI][CONFIRM_REVIEW] Confirming setup review for session:', res.id);
       await apiRequest(`/negotiations/${res.id}/confirm-review`, {
         method: 'POST',
         body: JSON.stringify({ confirm: true }),
       });
 
-      console.log('[AI-AI][START] Starting negotiation session:', res.id);
       await apiRequest(`/negotiations/${res.id}/start`, { method: 'POST' });
-      console.log('[AI-AI][START_SUCCESS] Negotiation session is active.');
+      setStatus('running');
+      setActiveSessionStatus('running');
     } catch (err: any) {
       console.error('[AI-AI][INIT_ERROR] Session initialization error:', err);
       setErrorMessage(err.message || 'Failed to initialize AI-vs-AI session on backend.');
@@ -187,10 +279,8 @@ export const SimulationArenaScreen: React.FC = () => {
     }
 
     setIsExecutingStep(true);
-    console.log('[AI-AI][STEP_REQUEST] Executing step for session:', currentSessionId);
     try {
       const stepRes: TurnResultResponse = await negotiationApi.executeStep(currentSessionId);
-      console.log('[AI-AI][STEP_RESPONSE] Step result received:', stepRes);
       if (!mountedRef.current) return;
 
       setCurrentRound(stepRes.round || 1);
@@ -203,40 +293,17 @@ export const SimulationArenaScreen: React.FC = () => {
       }
 
       if (stepRes.message) {
-        const senderName = (stepRes.message.sender || 'Agent').trim();
-        const normSender = senderName.toLowerCase();
-        const normAgent0 = (agent0.name || '').trim().toLowerCase();
-        const normAgent1 = (agent1.name || '').trim().toLowerCase();
-
-        let isAgent0 = true;
-        const rawRole = (stepRes.message.role || '').toLowerCase();
-        const rawSender = (stepRes.message.sender || '').toLowerCase();
-        const agent0Role = (agent0.role || '').toLowerCase();
-        const agent0Name = (agent0.name || '').toLowerCase();
-
-        if (rawRole && agent0Role && (rawRole.includes(agent0Role) || agent0Role.includes(rawRole))) {
-          isAgent0 = true;
-        } else if (rawSender && agent0Name && rawSender.includes(agent0Name)) {
-          isAgent0 = true;
-        } else if (rawRole.includes('recruiter') || rawRole.includes('procurement') || rawRole.includes('finance') || rawRole.includes('buyer')) {
-          isAgent0 = true;
-        } else if (rawRole.includes('candidate') || rawRole.includes('vendor') || rawRole.includes('seller') || rawRole.includes('engineering') || rawRole.includes('marketing')) {
-          isAgent0 = false;
-        } else if (normSender === normAgent0) {
-          isAgent0 = true;
-        } else if (normSender === normAgent1) {
-          isAgent0 = false;
-        } else {
-          isAgent0 = (stepRes.message.turn_index % 2 === 0);
-        }
-
-        const normalizedSenderName = isAgent0 ? 'Recruiter Agent' : 'Candidate Agent';
+        const senderName = (stepRes.message.sender || agent0.name).trim();
+        const isAgent0 = (senderName.toLowerCase().includes((agent0.name || '').toLowerCase()) ||
+          senderName.toLowerCase().includes('buyer') ||
+          senderName.toLowerCase().includes('recruiter') ||
+          senderName.toLowerCase().includes('department'));
 
         const newMsg: SimulationMessage = {
           id: stepRes.message.id || `msg-${Date.now()}`,
-          sender: normalizedSenderName,
-          role: stepRes.message.role || (isAgent0 ? 'Recruiter' : 'Candidate'),
-          avatar: isAgent0 ? 'RA' : 'CA',
+          sender: senderName,
+          role: stepRes.message.role || (isAgent0 ? agent0.role : agent1.role),
+          avatar: stepRes.message.avatar || (isAgent0 ? agent0.avatar : agent1.avatar),
           content: stepRes.message.content,
           offerData: stepRes.message.offer_data || stepRes.final_terms,
           round: stepRes.message.round,
@@ -255,8 +322,13 @@ export const SimulationArenaScreen: React.FC = () => {
       const isTerminal = stepRes.agreement_reached || stepRes.status === 'finished' || stepRes.status === 'deadlock' || stepRes.status === 'terminated';
 
       if (isTerminal) {
-        console.log('[AI-AI][TERMINAL] Terminal negotiation outcome reached:', stepRes.status);
-        setStatus(stepRes.status || (stepRes.agreement_reached ? 'finished' : 'deadlock'));
+        const finalStatus = stepRes.status || (stepRes.agreement_reached ? 'finished' : 'deadlock');
+        setStatus(finalStatus);
+        setActiveSessionStatus(finalStatus);
+        if (currentSessionId) {
+          setSelectedReportId(currentSessionId);
+        }
+        setIsCompletedModalOpen(true);
       } else if (!isPausedRef.current) {
         clearLoopTimer();
         timerRef.current = setTimeout(() => {
@@ -291,15 +363,59 @@ export const SimulationArenaScreen: React.FC = () => {
   }, [messages.length, isExecutingStep]);
 
   // Handle Pause / Resume
-  const handleTogglePause = () => {
-    setIsPaused((prev) => {
-      const next = !prev;
-      if (!next && status === 'running') {
-        clearLoopTimer();
-        timerRef.current = setTimeout(() => executeNextStep(), 300);
+  const handleTogglePause = async () => {
+    const nextPaused = !isPaused;
+    setIsPaused(nextPaused);
+    if (sessionId) {
+      try {
+        if (nextPaused) {
+          await negotiationApi.pauseNegotiation(sessionId);
+        } else {
+          await negotiationApi.resumeSession(sessionId);
+        }
+      } catch (err) {
+        console.warn('Toggle pause error:', err);
       }
-      return next;
-    });
+    }
+    if (!nextPaused && status === 'running') {
+      clearLoopTimer();
+      timerRef.current = setTimeout(() => executeNextStep(), 300);
+    }
+  };
+
+  // Navigation Guard 4-Option Handlers
+  const handleNavGuardContinue = () => {
+    setIsNavGuardOpen(false);
+  };
+
+  const handleNavGuardPause = async () => {
+    if (sessionId) {
+      try {
+        await negotiationApi.pauseNegotiation(sessionId);
+      } catch (e) {
+        console.warn('Pause error:', e);
+      }
+    }
+    setIsNavGuardOpen(false);
+    navigate('/dashboard');
+  };
+
+  const handleNavGuardStop = async () => {
+    if (sessionId) {
+      try {
+        await negotiationApi.stopNegotiation(sessionId, 'stop');
+      } catch (e) {
+        console.warn('Stop error:', e);
+      }
+    }
+    setIsNavGuardOpen(false);
+    navigate('/dashboard');
+  };
+
+  const handleNavGuardGoDashboard = () => {
+    // Leave running in background
+    setIsNavGuardOpen(false);
+    navigate('/dashboard');
   };
 
   // Handle Stop Button Click -> Opens Stop Options Modal
@@ -668,12 +784,12 @@ export const SimulationArenaScreen: React.FC = () => {
           {/* RIGHT AGENT SIDEBAR (AGENT 1) */}
           <aside className="bg-white/70 border border-white/85 rounded-[24px] p-6 shadow-[0_12px_40px_rgba(15,23,42,0.05)] backdrop-blur-[24px] space-y-4">
             <div className="flex items-center gap-3">
-              <div className="w-11 h-11 rounded-2xl bg-orange-500 text-white flex items-center justify-center font-extrabold text-sm shadow-md">
-                {agent1.avatar || 'ER'}
+              <div className="w-11 h-11 rounded-2xl bg-[#C86D51] text-white flex items-center justify-center font-extrabold text-sm shadow-md">
+                {agent1.avatar || 'VA'}
               </div>
               <div>
                 <h3 className="text-sm font-bold text-[#14234D]">{getAgentRoleTitle(false, agent1.role)}</h3>
-                <p className="text-[11px] text-orange-600 font-semibold mt-0.5">{agent1.role}</p>
+                <p className="text-[11px] text-[#C86D51] font-semibold mt-0.5">{agent1.role}</p>
               </div>
             </div>
 
@@ -686,12 +802,68 @@ export const SimulationArenaScreen: React.FC = () => {
               </div>
               <div className="flex justify-between items-center text-slate-500">
                 <span>Position:</span>
-                <span className="font-semibold text-slate-700">Right Negotiator</span>
+                <span className="font-semibold text-slate-700">Counterpart Negotiator</span>
               </div>
             </div>
           </aside>
         </div>
       </div>
+
+      {/* NAVIGATION BACK BUTTON PROTECTION MODAL (4 Options) */}
+      {isNavGuardOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl border border-white/80 shadow-2xl max-w-md w-full p-7 space-y-6 text-center animate-in zoom-in-95 duration-200 relative">
+            <div className="w-14 h-14 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mx-auto shadow-inner">
+              <AlertTriangle size={26} />
+            </div>
+
+            <div className="space-y-2">
+              <h3 className="text-lg font-extrabold text-[#14234D]">Negotiation Is Still Active</h3>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                An active multi-agent negotiation session is currently underway. How would you like to proceed?
+              </p>
+            </div>
+
+            <div className="space-y-2.5 pt-2">
+              {/* Option 1: Continue Negotiation */}
+              <button
+                onClick={handleNavGuardContinue}
+                className="w-full py-3 px-5 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-md hover:shadow-lg transition-all border-none cursor-pointer"
+              >
+                <Play size={14} fill="currentColor" />
+                <span>Continue Negotiation</span>
+              </button>
+
+              {/* Option 2: Pause Negotiation */}
+              <button
+                onClick={handleNavGuardPause}
+                className="w-full py-3 px-5 rounded-2xl bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold text-xs flex items-center justify-center gap-2 border border-amber-200 transition-all cursor-pointer"
+              >
+                <Pause size={14} />
+                <span>Pause Negotiation & Go to Dashboard</span>
+              </button>
+
+              {/* Option 3: Stop Negotiation */}
+              <button
+                onClick={handleNavGuardStop}
+                className="w-full py-3 px-5 rounded-2xl bg-red-50 hover:bg-red-100 text-red-700 font-bold text-xs flex items-center justify-center gap-2 border border-red-200 transition-all cursor-pointer"
+              >
+                <Square size={14} />
+                <span>Stop Negotiation & Go to Dashboard</span>
+              </button>
+
+              {/* Option 4: Go to Dashboard (Run in background) */}
+              <button
+                onClick={handleNavGuardGoDashboard}
+                className="w-full py-3 px-5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs flex items-center justify-center gap-2 transition-all border-none cursor-pointer"
+              >
+                <Clock size={14} />
+                <span>Go to Dashboard (Continue in Background)</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* STOP OPTIONS POPUP MODAL */}
       {isStopModalOpen && (
@@ -753,6 +925,61 @@ export const SimulationArenaScreen: React.FC = () => {
                 className="text-xs font-semibold text-slate-400 hover:text-slate-600 transition-all border-none bg-transparent cursor-pointer"
               >
                 Resume Simulation
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* NEGOTIATION COMPLETED OUTCOME MODAL & AUTO-REDIRECT */}
+      {isCompletedModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl border border-white/80 shadow-2xl max-w-md w-full p-7 space-y-6 text-center animate-in zoom-in-95 duration-200 relative">
+            <div className={`w-16 h-16 rounded-2xl flex items-center justify-center mx-auto shadow-inner ${
+              status === 'deadlock'
+                ? 'bg-red-50 text-red-600 border border-red-100'
+                : 'bg-emerald-50 text-emerald-600 border border-emerald-100'
+            }`}>
+              {status === 'deadlock' ? (
+                <AlertTriangle size={30} />
+              ) : (
+                <CheckCircle2 size={30} />
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                Negotiation Concluded
+              </span>
+              <h3 className="text-xl font-extrabold text-[#14234D]">
+                {status === 'deadlock' ? 'Deadlock Reached' : 'Agreement Successfully Reached!'}
+              </h3>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                {status === 'deadlock'
+                  ? 'The negotiation agents could not find mutually agreeable terms within boundary constraints.'
+                  : 'All participating agents have formally ratified the negotiated commercial terms.'}
+              </p>
+            </div>
+
+            <div className="rounded-2xl bg-blue-50/70 border border-blue-100 p-3 text-[11px] font-semibold text-blue-800 flex items-center justify-center gap-2">
+              <FileText size={15} />
+              <span>Redirecting to Outcome Report in {redirectCountdown}s...</span>
+            </div>
+
+            <div className="space-y-2.5 pt-1">
+              <button
+                onClick={() => navigate('/reports')}
+                className="w-full py-3.5 px-5 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center justify-center gap-2.5 shadow-md hover:shadow-lg transition-all border-none cursor-pointer"
+              >
+                <FileText size={15} />
+                <span>View Full Outcome Report Now</span>
+              </button>
+
+              <button
+                onClick={() => setIsCompletedModalOpen(false)}
+                className="w-full py-2.5 px-4 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-700 transition-colors border-none bg-transparent cursor-pointer"
+              >
+                Stay & Review Dialogue Transcript
               </button>
             </div>
           </div>
