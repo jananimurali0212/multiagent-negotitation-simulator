@@ -65,16 +65,22 @@ class OrchestratorService:
                     selectinload(NegotiationSession.messages),
                 )
             )
+            if db.bind and getattr(getattr(db, "bind", None), "dialect", None) and getattr(db.bind.dialect, "name", "") != "sqlite":
+                stmt = stmt.with_for_update()
             result = await db.execute(stmt)
             session = result.scalar_one_or_none()
 
             if not session:
                 raise ValueError(f"Session {session_id} not found")
 
+            # Terminal state guard - no steps allowed from terminal states
             if session.status in ["finished", "deadlock", "terminated"]:
+                stop_background_simulation(session.id)
                 return {
                     "status": session.status,
                     "round": session.current_round,
+                    "current_turn_speaker": session.current_speaker or "",
+                    "next_speaker": session.current_speaker or "",
                     "message": None,
                     "agreement_reached": session.agreement_reached,
                     "final_terms": session.final_terms,
@@ -84,20 +90,43 @@ class OrchestratorService:
             if not agents:
                 raise ValueError(f"Session {session_id} has no configured agents")
 
-            # Sort messages strictly by round, turn_index, created_at
+            # Sort messages strictly by round, turn_index, timestamp
             raw_messages = list(session.messages or [])
             raw_messages.sort(key=lambda m: (m.round or 1, m.turn_index or 0, getattr(m, "timestamp", None) or getattr(m, "created_at", None)))
             messages = raw_messages
             turn_count = len(messages)
 
-            # Handle Human vs AI mode user input with Phase 3 validation
-            if session.mode == "human-ai" and user_message:
+            # Determine human agent position in human-ai mode
+            human_agent = None
+            if session.mode == "human-ai":
                 human_role_clean = (getattr(session, "human_role", "") or "").lower()
-                is_agent_1_human = human_role_clean in ["vendor", "recruiter", "finance-lead"] or (
+                # If human_role is vendor/candidate/project-manager, human is agent 1 (index 1), else agent 0 (index 0)
+                is_agent_1_human = any(k in human_role_clean for k in ["vendor", "candidate", "project", "pm"]) or (
                     len(agents) > 1 and human_role_clean == (agents[1].role or "").lower()
                 )
                 human_agent = agents[1] if (is_agent_1_human and len(agents) > 1) else agents[0]
 
+            # Deterministic current turn speaker calculation
+            current_speaker_idx = turn_count % len(agents)
+            is_human_turn = session.mode == "human-ai" and human_agent and (agents[current_speaker_idx].id == human_agent.id)
+
+            # If it's the human's turn but no user_message is provided, DO NOT generate AI turn for human
+            if is_human_turn and user_message is None:
+                session.status = "waiting_for_human"
+                session.current_speaker = human_agent.name
+                await db.commit()
+                return {
+                    "status": "waiting_for_human",
+                    "round": (turn_count // len(agents)) + 1,
+                    "current_turn_speaker": human_agent.name,
+                    "next_speaker": human_agent.name,
+                    "message": None,
+                    "agreement_reached": session.agreement_reached,
+                    "final_terms": session.final_terms,
+                }
+
+            # Handle Human Turn input
+            if session.mode == "human-ai" and user_message is not None:
                 # Build AgentConfigSchema for validation
                 human_schema = AgentConfigSchema(
                     id=human_agent.id,
@@ -161,27 +190,33 @@ class OrchestratorService:
                             "validation_error": acc_res.human_safe_message,
                         }
 
-                user_msg = NegotiationMessage(
-                    session_id=session.id,
-                    sender=human_agent.name if (human_agent and human_agent.name) else "You (User)",
-                    role=human_agent.role if (human_agent and human_agent.role) else "Participant",
-                    avatar=human_agent.avatar if (human_agent and human_agent.avatar) else "US",
-                    content=user_message,
-                    offer_data=user_offer or {},
-                    round=(turn_count // len(agents)) + 1,
-                    turn_index=turn_count,
-                    is_user=True,
-                )
-                db.add(user_msg)
-                await db.flush()
-                messages.append(user_msg)
-                turn_count += 1
+                # Idempotency / duplicate check for human message
+                user_msg_content = user_message.strip()
+                if messages and messages[-1].is_user and messages[-1].content == user_msg_content:
+                    logger.warning(f"[IDEMPOTENCY] Duplicate human message detected for session {session.id}. Skipping duplicate persistence.")
+                    user_msg = messages[-1]
+                else:
+                    user_msg = NegotiationMessage(
+                        session_id=session.id,
+                        sender=human_agent.name if (human_agent and human_agent.name) else "You (User)",
+                        role=human_agent.role if (human_agent and human_agent.role) else "Participant",
+                        avatar=human_agent.avatar if (human_agent and human_agent.avatar) else "US",
+                        content=user_msg_content,
+                        offer_data=user_offer or {},
+                        round=(turn_count // len(agents)) + 1,
+                        turn_index=turn_count,
+                        is_user=True,
+                    )
+                    db.add(user_msg)
+                    await db.flush()
+                    messages.append(user_msg)
+                    turn_count += 1
 
-                if user_offer:
-                    session.latest_offer = user_offer
-                    session.latest_offer_sender = user_msg.sender
+                    if user_offer:
+                        session.latest_offer = user_offer
+                        session.latest_offer_sender = user_msg.sender
 
-            # Deterministic turn order calculation
+            # Deterministic turn order calculation for active AI speaker
             speaker_idx = turn_count % len(agents)
             calculated_round = (turn_count // len(agents)) + 1
             active_speaker_name = agents[speaker_idx].name
@@ -300,6 +335,11 @@ class OrchestratorService:
                 outcome_str = "Agreement Reached" if session.agreement_reached else "Deadlock"
                 await ReportGenerator.generate_and_save_report(session, outcome_str, db)
             else:
+                # In human-ai mode, if next turn is for the human, set status to waiting_for_human
+                if session.mode == "human-ai" and human_agent and (agents[next_speaker_idx].id == human_agent.id):
+                    session.status = "waiting_for_human"
+                else:
+                    session.status = "running"
                 await db.commit()
 
             logger.info(

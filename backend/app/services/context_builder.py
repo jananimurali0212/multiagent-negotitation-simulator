@@ -61,7 +61,15 @@ class NegotiationContextBuilder:
                     f"- {curr_o['sender']} in Round {curr_o['round']} adjusted offer from {prev_o['offer']} to {curr_o['offer']}"
                 )
 
-        # 5. Format Previous Conversation transcript
+        # 5. Extract Latest & Previous Message
+        latest_message: Optional[Dict[str, Any]] = None
+        previous_message: Optional[Dict[str, Any]] = None
+        if len(sorted_messages) > 0:
+            latest_message = sorted_messages[-1]
+        if len(sorted_messages) > 1:
+            previous_message = sorted_messages[-2]
+
+        # 6. Format Previous Conversation transcript
         formatted_history_lines = []
         for msg in sorted_messages:
             sender = msg.get("sender", "Agent")
@@ -73,13 +81,15 @@ class NegotiationContextBuilder:
 
         previous_conv_text = "\n\n".join(formatted_history_lines) if formatted_history_lines else "No prior conversation. You are making the opening move."
 
-        # 6. Format Structured Context Block
+        # 7. Format Structured Context Block
         all_participants = [active_agent] + [oa for oa in other_agents if oa.get("name") != active_agent.get("name")]
         participants_text = "\n".join([f"- {a.get('name', 'Agent')} ({a.get('role', 'Participant')})" for a in all_participants])
 
         latest_proposal_text = f"{latest_offer_sender}: {latest_offer}" if latest_offer else "No formal numeric proposal submitted yet."
         unresolved_text = ", ".join(unresolved_issues) if unresolved_issues else "Core terms under active discussion."
         concessions_text = "\n".join(concessions_summary[-3:]) if concessions_summary else "No concessions logged yet."
+
+        latest_msg_summary = f"[{latest_message.get('sender', 'Agent')}]: {latest_message.get('content', '')}" if latest_message else "None (Opening turn)"
 
         context_summary = f"""NEGOTIATION CONTEXT & MEMORY
 
@@ -98,6 +108,12 @@ Current Speaker:
 Participants:
 {participants_text}
 
+Latest Statement to Address:
+{latest_msg_summary}
+
+Latest Proposal on Table:
+{latest_proposal_text}
+
 Previous Conversation:
 {previous_conv_text}
 
@@ -113,6 +129,8 @@ Current Negotiation State:
             "latest_offer_sender": latest_offer_sender,
             "previous_offer": previous_offer,
             "previous_offer_sender": previous_offer_sender,
+            "latest_message": latest_message,
+            "previous_message": previous_message,
             "offers_history": offers_history,
             "unresolved_issues": unresolved_issues,
             "concessions_summary": concessions_summary,

@@ -25,13 +25,13 @@ async def execute_simulation_step(
     if session.user_id != current_user.id:
         raise ForbiddenError()
 
-    if session.status == "paused":
+    if session.status in ["paused", "waiting_for_human", "finished", "deadlock", "terminated"]:
         return TurnResultResponse(
-            status="paused",
+            status=session.status,
             round=session.current_round,
             current_turn_speaker=session.current_speaker or "",
             message=None,
-            agreement_reached=False,
+            agreement_reached=session.agreement_reached,
             final_terms=session.final_terms,
         )
 
@@ -39,8 +39,9 @@ async def execute_simulation_step(
     return TurnResultResponse(**result)
 
 
+@router.post("/{session_id}/human-turn", response_model=TurnResultResponse)
 @router.post("/{session_id}/user-turn", response_model=TurnResultResponse)
-async def submit_user_turn(
+async def submit_human_turn(
     session_id: str,
     payload: UserTurnPayload,
     current_user: User = Depends(get_current_user),
@@ -50,6 +51,16 @@ async def submit_user_turn(
     session = await _load_full_session(session_id, db)
     if session.user_id != current_user.id:
         raise ForbiddenError()
+
+    if session.status in ["finished", "deadlock", "terminated"]:
+        return TurnResultResponse(
+            status=session.status,
+            round=session.current_round,
+            current_turn_speaker=session.current_speaker or "",
+            message=None,
+            agreement_reached=session.agreement_reached,
+            final_terms=session.final_terms,
+        )
 
     result = await orchestrator.execute_turn(
         session_id=session.id,

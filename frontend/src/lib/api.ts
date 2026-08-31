@@ -93,7 +93,15 @@ export interface NegotiationSetupPayload {
   agents?: AgentDefaultData[];
 }
 
-export type NegotiationStatus = 'running' | 'finished' | 'deadlock' | 'terminated';
+export type NegotiationStatus =
+  | 'setup'
+  | 'ready'
+  | 'running'
+  | 'waiting_for_human'
+  | 'paused'
+  | 'finished'
+  | 'deadlock'
+  | 'terminated';
 
 export interface NegotiationMessageResponse {
   id: string;
@@ -112,6 +120,7 @@ export interface NegotiationStepResponse {
   status: NegotiationStatus;
   round: number;
   current_turn_speaker?: string;
+  next_speaker?: string;
   message?: NegotiationMessageResponse | null;
   agreement_reached: boolean;
   final_terms?: Record<string, any>;
@@ -131,7 +140,12 @@ export const negotiationApi = {
       method: 'POST',
     }),
   submitUserTurn: (sessionId: string, userMessage: string, userOffer?: Record<string, any>) =>
-    apiRequest<NegotiationStepResponse>(`/negotiations/${sessionId}/user-turn`, {
+    apiRequest<NegotiationStepResponse>(`/negotiations/${sessionId}/human-turn`, {
+      method: 'POST',
+      body: JSON.stringify({ message: userMessage, offer: userOffer || {} }),
+    }),
+  submitHumanTurn: (sessionId: string, userMessage: string, userOffer?: Record<string, any>) =>
+    apiRequest<NegotiationStepResponse>(`/negotiations/${sessionId}/human-turn`, {
       method: 'POST',
       body: JSON.stringify({ message: userMessage, offer: userOffer || {} }),
     }),

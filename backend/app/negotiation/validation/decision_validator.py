@@ -88,8 +88,13 @@ class DecisionValidator:
         )
         decision.concession_percentage = concession_info["normalized_percentage"]
 
-        # 5. Validate & Repair Message Content Against Configured Boundaries
-        decision = cls._validate_and_repair_message_facts(state, active_agent, decision)
+        # 5. Dynamic Message Quality & Anti-Repetition Validation (Fix 7)
+        from app.negotiation.validation.message_quality import MessageQualityValidator
+        _, decision, repair_note = MessageQualityValidator.validate_message_quality(state, active_agent, decision)
+        if repair_note:
+            NegotiationTelemetry.emit("message_quality_repaired", state.session_id, active_agent.name, state.current_round, {
+                "repair_note": repair_note
+            })
 
         NegotiationTelemetry.emit("decision_validated", state.session_id, active_agent.name, state.current_round, {
             "action": decision.action, "is_concession": concession_info.get("is_concession", False),
@@ -106,43 +111,9 @@ class DecisionValidator:
         decision: AgentDecision,
     ) -> AgentDecision:
         """Validates that public message does not state unsupported factual numbers contradicting configured bounds."""
-        if not decision.message:
-            return decision
-
-        msg = decision.message
-        role_clean = agent.role.lower()
-
-        # Job Offer scenario checks
-        if state.scenario_id == "job-offer":
-            extracted_numbers = [float(n.replace(",", "")) for n in re.findall(r"\$([0-9]{2,3}(?:,[0-9]{3})+|\b[0-9]{5,7}\b)", msg)]
-            if any(w in role_clean for w in ["recruiter", "hr"]):
-                max_s = ConstraintRules._extract_param_value(agent, ["maxsalary", "max_salary", "grade cap", "budget"])
-                if max_s is not None:
-                    # If recruiter message mentions a number higher than their approved maximum budget cap
-                    for num in extracted_numbers:
-                        if num > max_s * 1.05:
-                            logger.warning(f"[FACT_REPAIR] Repaired recruiter message mentioning unsupported salary ${num:,.0f} > cap ${max_s:,.0f}")
-                            repaired_msg = re.sub(
-                                r"\$([0-9]{2,3}(?:,[0-9]{3})+|\b[0-9]{5,7}\b)",
-                                f"${max_s:,.0f}",
-                                msg
-                            )
-                            return decision.model_copy(update={"message": repaired_msg})
-            elif any(w in role_clean for w in ["candidate", "developer", "engineer"]):
-                min_s = ConstraintRules._extract_param_value(agent, ["minsalary", "min_salary", "competing offer", "floor"])
-                if min_s is not None:
-                    # If candidate message offers to accept a number lower than their hard minimum floor
-                    for num in extracted_numbers:
-                        if num < min_s * 0.95 and decision.action == "accept":
-                            logger.warning(f"[FACT_REPAIR] Repaired candidate message mentioning salary below floor ${num:,.0f} < floor ${min_s:,.0f}")
-                            repaired_msg = re.sub(
-                                r"\$([0-9]{2,3}(?:,[0-9]{3})+|\b[0-9]{5,7}\b)",
-                                f"${min_s:,.0f}",
-                                msg
-                            )
-                            return decision.model_copy(update={"message": repaired_msg})
-
-        return decision
+        from app.negotiation.validation.message_quality import MessageQualityValidator
+        _, dec, _ = MessageQualityValidator.validate_message_quality(state, agent, decision)
+        return dec
 
     @classmethod
     def _attempt_safe_correction(

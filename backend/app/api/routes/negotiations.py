@@ -417,7 +417,17 @@ async def resume_negotiation(
         raise ForbiddenError()
 
     if session.status in ["paused", "ready"]:
-        session.status = "running"
+        agents = list(session.agents or [])
+        turn_count = len(session.messages or [])
+        speaker_idx = turn_count % len(agents) if agents else 0
+        human_role_clean = (getattr(session, "human_role", "") or "").lower()
+        is_agent_1_human = any(k in human_role_clean for k in ["vendor", "candidate", "project", "pm"]) or (
+            len(agents) > 1 and human_role_clean == (agents[1].role or "").lower()
+        )
+        human_agent = agents[1] if (is_agent_1_human and len(agents) > 1) else (agents[0] if agents else None)
+        is_human_turn = session.mode == "human-ai" and human_agent and (agents[speaker_idx].id == human_agent.id)
+
+        session.status = "waiting_for_human" if is_human_turn else "running"
         await db.commit()
 
     if session.mode == "ai-ai" and session.status == "running":
@@ -473,7 +483,20 @@ async def start_negotiation(
         f"=================================================================="
     )
 
-    session.status = "running"
+    agents = list(session.agents or [])
+    human_role_clean = (getattr(session, "human_role", "") or "").lower()
+    is_agent_1_human = any(k in human_role_clean for k in ["vendor", "candidate", "project", "pm"]) or (
+        len(agents) > 1 and human_role_clean == (agents[1].role or "").lower()
+    )
+    human_agent = agents[1] if (is_agent_1_human and len(agents) > 1) else (agents[0] if agents else None)
+
+    # In human-ai mode, if human is the opening speaker (agent 0), set status to waiting_for_human
+    if session.mode == "human-ai" and human_agent and agents and agents[0].id == human_agent.id:
+        session.status = "waiting_for_human"
+    else:
+        session.status = "running"
+
+    session.current_speaker = agents[0].name if agents else ""
     session.current_step = "NEGOTIATION"
     await db.commit()
 

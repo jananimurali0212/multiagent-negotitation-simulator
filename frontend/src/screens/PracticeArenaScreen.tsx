@@ -44,7 +44,7 @@ export const PracticeArenaScreen: React.FC = () => {
   const [inputText, setInputText] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [currentRound, setCurrentRound] = useState(1);
-  const [status, setStatus] = useState<'setup' | 'running' | 'paused' | 'finished' | 'deadlock' | 'terminated'>('running');
+  const [status, setStatus] = useState<'setup' | 'ready' | 'running' | 'waiting_for_human' | 'paused' | 'finished' | 'deadlock' | 'terminated'>('running');
   const [errorMessage, setErrorMessage] = useState('');
   const [isNavGuardOpen, setIsNavGuardOpen] = useState(false);
   const [isCompletedModalOpen, setIsCompletedModalOpen] = useState(false);
@@ -234,17 +234,9 @@ export const PracticeArenaScreen: React.FC = () => {
             setStatus(stepRes.status as any);
           }
         } else {
-          setMessages([
-            {
-              id: 'init-1',
-              sender: opponent.name,
-              role: opponent.role,
-              content: `Hello! I am ${opponent.name}, acting as ${opponent.role}. I am ready to negotiate. Please share your opening proposal or offer terms.`,
-              isUser: false,
-              round: 1,
-              timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            },
-          ]);
+          // Human speaks first: session status is waiting_for_human
+          setStatus('waiting_for_human');
+          setActiveSessionStatus('waiting_for_human');
         }
       } catch (err: any) {
         console.error('[PRACTICE][INIT_ERROR] Error setting up practice session:', err);
@@ -585,7 +577,14 @@ export const PracticeArenaScreen: React.FC = () => {
             </div>
 
             {/* BOTTOM CHAT INPUT BAR */}
-            <div className="p-4 border-t border-slate-100 bg-white/80 backdrop-blur-md">
+            <div className="p-4 border-t border-slate-100 bg-white/80 backdrop-blur-md space-y-2">
+              {status === 'waiting_for_human' && !isSubmitting && (
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50/80 border border-blue-100 rounded-lg text-[11px] text-blue-700 font-semibold animate-pulse">
+                  <Sparkles size={13} className="text-blue-600 shrink-0" />
+                  <span>[{userAgent.role}'s Turn] The negotiation is waiting for your response.</span>
+                </div>
+              )}
+
               <form onSubmit={handleSend} className="flex gap-3 items-center">
                 <input
                   type="text"
@@ -594,6 +593,8 @@ export const PracticeArenaScreen: React.FC = () => {
                   placeholder={
                     status === 'finished' || status === 'terminated'
                       ? 'Negotiation session complete.'
+                      : status === 'waiting_for_human'
+                      ? 'Type your response here...'
                       : 'Type your negotiation offer or counter-response...'
                   }
                   disabled={status === 'finished' || status === 'terminated' || isSubmitting}
@@ -604,7 +605,7 @@ export const PracticeArenaScreen: React.FC = () => {
                   disabled={!inputText.trim() || status === 'finished' || status === 'terminated' || isSubmitting}
                   className="px-5 py-3 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-md transition-all disabled:opacity-50 shrink-0 border-none cursor-pointer flex items-center gap-2"
                 >
-                  <span>Send</span>
+                  <span>Send Response</span>
                   <Send size={14} />
                 </button>
               </form>

@@ -11,6 +11,11 @@ from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
 from app.core.database import Base, get_db
+import app.models.user
+import app.models.scenario
+import app.models.negotiation
+import app.models.agent
+import app.models.report
 from app.main import app as fastapi_app
 
 from sqlalchemy.pool import StaticPool
@@ -30,9 +35,20 @@ TestingAsyncSessionLocal = async_sessionmaker(
 
 @pytest_asyncio.fixture(autouse=True)
 async def prepare_database():
+    from app.orchestration.runner import _active_runners
+    for sess_id in list(_active_runners.keys()):
+        task = _active_runners.pop(sess_id, None)
+        if task and not task.done():
+            task.cancel()
+
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield
+    for sess_id in list(_active_runners.keys()):
+        task = _active_runners.pop(sess_id, None)
+        if task and not task.done():
+            task.cancel()
+
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
 
@@ -63,5 +79,12 @@ async def auth_headers(client: AsyncClient) -> dict:
         "/api/v1/auth/signup",
         json={"email": "testuser@example.com", "password": "securepassword123", "full_name": "Test User"},
     )
-    token = signup_res.json()["access_token"]
+    if signup_res.status_code == 201:
+        token = signup_res.json()["access_token"]
+    else:
+        login_res = await client.post(
+            "/api/v1/auth/login",
+            json={"email": "testuser@example.com", "password": "securepassword123"},
+        )
+        token = login_res.json()["access_token"]
     return {"Authorization": f"Bearer {token}"}

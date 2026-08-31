@@ -46,7 +46,7 @@ export const SimulationArenaScreen: React.FC = () => {
   const [sessionId, setSessionId] = useState<string | null>(activeSessionId);
   const [messages, setMessages] = useState<SimulationMessage[]>([]);
   const [currentRound, setCurrentRound] = useState(1);
-  const [status, setStatus] = useState<'setup' | 'running' | 'paused' | 'finished' | 'deadlock' | 'terminated'>('running');
+  const [status, setStatus] = useState<'setup' | 'ready' | 'running' | 'waiting_for_human' | 'paused' | 'finished' | 'deadlock' | 'terminated'>('running');
   const [isPaused, setIsPaused] = useState(false);
   const [isExecutingStep, setIsExecutingStep] = useState(false);
   const [currentSpeakerName, setCurrentSpeakerName] = useState<string>('');
@@ -273,7 +273,8 @@ export const SimulationArenaScreen: React.FC = () => {
       isExecutingStepRef.current ||
       statusRef.current === 'finished' ||
       statusRef.current === 'deadlock' ||
-      statusRef.current === 'terminated'
+      statusRef.current === 'terminated' ||
+      statusRef.current === 'waiting_for_human'
     ) {
       return;
     }
