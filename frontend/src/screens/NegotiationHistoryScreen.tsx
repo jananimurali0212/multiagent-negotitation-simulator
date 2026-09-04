@@ -442,6 +442,7 @@ export const NegotiationHistoryScreen: React.FC = () => {
                 return (
                   <div
                     key={session.id}
+                    style={{ zIndex: activeMenuId === session.id ? 50 : 1 }}
                     onClick={() => setSelectedSessionId(session.id)}
                     className={`group relative flex items-center justify-between rounded-[16px] p-3 transition-all cursor-pointer ${
                       isChecked
@@ -638,7 +639,13 @@ export const NegotiationHistoryScreen: React.FC = () => {
                     )}
 
                     <button
-                      onClick={() => navigate('/reports')}
+                      onClick={() => {
+                        const targetReportId = selectedSessionDetails?.report_id || selectedSessionDetails?.id;
+                        if (targetReportId) {
+                          setSelectedReportId(targetReportId);
+                        }
+                        navigate('/reports');
+                      }}
                       className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white/80 px-3.5 py-1.5 text-[10.5px] font-bold text-slate-700 shadow-xs hover:bg-white transition-all cursor-pointer"
                     >
                       <FileText size={13} /> View Reports

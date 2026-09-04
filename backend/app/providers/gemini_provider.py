@@ -66,6 +66,8 @@ class GeminiProvider(BaseLLMProvider):
             )
 
             if response and response.text:
+                from app.services.llm_usage_service import LLMUsageService
+                usage = LLMUsageService.normalize_gemini_usage(response)
                 data = json.loads(response.text)
                 return AgentDecision(
                     action=data.get("action", "counteroffer"),
@@ -74,6 +76,9 @@ class GeminiProvider(BaseLLMProvider):
                     offer=data.get("offer", {}),
                     concession_percentage=float(data.get("concession_percentage", 5.0)),
                     confidence_score=float(data.get("confidence_score", 0.9)),
+                    provider="gemini",
+                    model=self.model_name,
+                    token_usage=usage,
                 )
             else:
                 raise LLMProviderError(

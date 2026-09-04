@@ -14,7 +14,9 @@ import {
   Zap,
   Shield,
   Check,
+  RotateCcw,
 } from 'lucide-react';
+import { negotiationApi } from '../lib/api';
 
 const PRIMARY = '#1E2230';
 const ACCENT = '#3B82F6';
@@ -384,7 +386,7 @@ export const AgentConfigurationScreen: React.FC = () => {
   const currentErrors = validateAgents(displayAgents);
   const isFormValid = Object.keys(currentErrors).length === 0;
 
-  const handleContinue = () => {
+  const handleContinue = async () => {
     setContinueAttempted(true);
 
     const errors = validateAgents(displayAgents);
@@ -404,7 +406,57 @@ export const AgentConfigurationScreen: React.FC = () => {
     }
 
     setErrorMsg(null);
+
+    // Immediate session persistence with idempotency
+    try {
+      const agentsPayload = displayAgents.map((a: any) => ({
+        agent_template_id: a.id || `agent-${Math.random()}`,
+        avatar: a.avatar || a.name?.slice(0, 2).toUpperCase() || 'AG',
+        name: a.name,
+        role: a.role,
+        personality: a.personality,
+        experience: a.experience || 'Intermediate',
+        negotiation_parameters: a.negotiation_parameters || {},
+        goals: (a.goals || []).map((g: any) => ({ text: g.text, priority: g.priority || 'High' })),
+        constraints: (a.constraints || []).map((c: any) => ({ label: c.label, value: c.value })),
+      }));
+
+      const { activeSessionId, setActiveSessionId, setActiveSessionStatus, selectedScenario, selectedMode, humanRole } = useStore.getState();
+
+      if (!activeSessionId) {
+        const session = await negotiationApi.createSession({
+          scenario_id: selectedScenario?.id || 'vendor-pricing',
+          mode: selectedMode || 'ai-ai',
+          human_role: humanRole || undefined,
+          agents: agentsPayload,
+        });
+        if (session && session.id) {
+          setActiveSessionId(session.id);
+          setActiveSessionStatus(session.status || 'setup');
+        }
+      } else {
+        await negotiationApi.updateAgents(activeSessionId, agentsPayload);
+      }
+    } catch (err) {
+      console.warn('Backend session auto-save note:', err);
+    }
+
     navigate('/setup/goals');
+  };
+
+  const handleReset = () => {
+    if (!selectedScenario) return;
+    // Reset agent fields to default values for the selected scenario without touching session ID, scenario, or mode
+    selectedScenario.defaultAgents.forEach((defAgent: any) => {
+      updateAgentConfig(defAgent.id, {
+        name: defAgent.name || '',
+        role: defAgent.role || '',
+        personality: defAgent.personality || 'Collaborative',
+        experience: defAgent.experience || 'Intermediate',
+      });
+    });
+    setErrorMsg(null);
+    setContinueAttempted(false);
   };
 
   const updatePrimaryGoal = (agentId: string, text: string) => {
@@ -854,14 +906,25 @@ export const AgentConfigurationScreen: React.FC = () => {
         </aside>
       </section>
 
-      {/* FOOTER & DISABLED SAVE & CONTINUE BUTTON */}
+      {/* FOOTER & RESET & SAVE & CONTINUE BUTTONS */}
       <section className="relative z-10 mt-6 flex items-center justify-between border-t border-slate-200 pt-5">
-        <button
-          onClick={() => navigate('/setup/mode')}
-          className="flex items-center gap-2 rounded-full px-5 py-2.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 shadow-sm transition-all cursor-pointer"
-        >
-          <ArrowLeft size={15} /> Back
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => navigate('/setup/mode')}
+            className="flex items-center gap-2 rounded-full px-5 py-2.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 shadow-sm transition-all cursor-pointer"
+          >
+            <ArrowLeft size={15} /> Back
+          </button>
+
+          <button
+            type="button"
+            onClick={handleReset}
+            className="flex items-center gap-1.5 rounded-full px-4 py-2.5 text-xs font-semibold text-slate-600 bg-slate-100/90 border border-slate-200 hover:bg-slate-200/80 shadow-xs transition-all cursor-pointer"
+            title="Reset agent configuration fields"
+          >
+            <RotateCcw size={14} /> Reset
+          </button>
+        </div>
 
         <button
           onClick={handleContinue}

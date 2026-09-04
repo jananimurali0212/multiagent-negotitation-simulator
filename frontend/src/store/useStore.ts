@@ -503,7 +503,7 @@ interface AppStore {
   setActiveSessionId: (id: string | null) => void;
   setActiveSessionStatus: (status: string | null) => void;
   resetActiveSession: () => void;
-  resumeSession: (sessionId: string) => Promise<void>;
+  resumeSession: (sessionId: string) => Promise<string | null>;
   
   // Actions
   login: (email: string) => void;
@@ -794,7 +794,7 @@ export const useStore = create<AppStore>()(
   resumeSession: async (sessionId: string) => {
     try {
       const session = await negotiationApi.getSession(sessionId);
-      if (!session) return;
+      if (!session) return null;
 
       const allScenarios = [...get().scenarios, ...get().customScenarios];
       const targetScenario = allScenarios.find((s) => s.id === session.scenario_id);
@@ -813,6 +813,34 @@ export const useStore = create<AppStore>()(
       const sessionStatus = session.status || 'running';
       const isFinished = sessionStatus === 'finished' || sessionStatus === 'deadlock';
 
+      let restoredAgents = get().configuredAgents;
+      if (session.agents && session.agents.length > 0) {
+        restoredAgents = session.agents.map((a: any) => ({
+          id: a.id,
+          name: a.name,
+          role: a.role,
+          avatar: a.avatar || a.name?.slice(0, 2).toUpperCase() || 'AG',
+          personality: a.personality || 'Collaborative',
+          experience: a.experience || 'Intermediate',
+          primaryGoal: (a.goals && a.goals[0]?.text) || '',
+          goals: a.goals || [],
+          constraints: a.constraints || [],
+          negotiation_parameters: a.negotiation_parameters || {},
+          targetPrice: a.negotiation_parameters?.targetPrice || '',
+          minPrice: a.negotiation_parameters?.minPrice || '',
+          maxBudget: a.negotiation_parameters?.maxBudget || '',
+          targetSalary: a.negotiation_parameters?.targetSalary || '',
+          minSalary: a.negotiation_parameters?.minSalary || '',
+          maxSalary: a.negotiation_parameters?.maxSalary || '',
+          targetAllocation: a.negotiation_parameters?.targetAllocation || '',
+          minAllocation: a.negotiation_parameters?.minAllocation || '',
+          maxAllocation: a.negotiation_parameters?.maxAllocation || '',
+          paymentTerms: a.negotiation_parameters?.paymentTerms || '',
+          deliveryRequirement: a.negotiation_parameters?.deliveryRequirement || '',
+          warrantySupport: a.negotiation_parameters?.warrantySupport || '',
+        }));
+      }
+
       set({
         activeSessionId: session.id,
         activeSessionStatus: sessionStatus,
@@ -820,6 +848,7 @@ export const useStore = create<AppStore>()(
         selectedMode: session.mode as any,
         humanRole: session.human_role || null,
         reviewConfirmed: session.review_confirmed || true,
+        configuredAgents: restoredAgents,
       });
 
       if (session.mode === 'human-ai') {
@@ -841,8 +870,23 @@ export const useStore = create<AppStore>()(
           },
         });
       }
+
+      // Compute exact step-aware destination
+      const step = (session.current_step || '').toUpperCase();
+      if (step === 'SCENARIO') return '/setup/scenario';
+      if (step === 'MODE') return '/setup/mode';
+      if (step === 'AGENTS') return '/setup/agents';
+      if (step === 'GOALS') return '/setup/goals';
+      if (step === 'REVIEW') return '/setup/review';
+      if (isFinished || sessionStatus === 'terminated') {
+        const reportId = session.report?.id || session.report_id || session.id;
+        set({ selectedReportId: reportId });
+        return '/reports';
+      }
+      return session.mode === 'human-ai' ? '/arena/practice' : '/arena/simulation';
     } catch (err) {
       console.error('Failed to resume negotiation session:', err);
+      return null;
     }
   },
   

@@ -40,6 +40,7 @@ import {
   Check,
   X,
   Minus,
+  Zap,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -807,6 +808,17 @@ export const OutcomeReportScreen: React.FC = () => {
                           <span className="ml-auto text-[9.5px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-700 uppercase">
                             {evt.action}
                           </span>
+
+                          {/* Turn Token Telemetry Badge */}
+                          {evt.is_user ? (
+                            <span className="text-[9px] font-semibold text-slate-400 bg-slate-100/80 border border-slate-200 px-2 py-0.5 rounded-full" title="Human message (No LLM completion)">
+                              Human turn
+                            </span>
+                          ) : evt.token_usage?.usage_available ? (
+                            <span className="text-[9px] font-mono font-bold text-blue-700 bg-blue-50/90 border border-blue-200 px-2 py-0.5 rounded-full" title={`${evt.token_usage.provider || 'LLM'}: ${evt.token_usage.input_tokens ?? 0} in / ${evt.token_usage.output_tokens ?? 0} out`}>
+                              ⚡ {(evt.token_usage.total_tokens ?? 0).toLocaleString()} tok
+                            </span>
+                          ) : null}
                         </div>
 
                         <p className="text-xs text-slate-700 font-medium bg-white/70 p-3 rounded-xl border border-slate-100/90 shadow-xs">
@@ -1059,6 +1071,159 @@ export const OutcomeReportScreen: React.FC = () => {
                   </div>
                 </div>
               )}
+
+              {/* LLM TOKEN USAGE TELEMETRY SECTION */}
+              <div className={`rounded-2xl p-6 space-y-5 ${glassInner}`}>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/80 pb-3">
+                  <div className="flex items-center gap-2.5 text-[#0F172A]">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-500/10 text-blue-600 border border-blue-500/20">
+                      <Zap size={16} />
+                    </div>
+                    <div>
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-[#0F172A]">
+                        LLM Token Usage Telemetry
+                      </h3>
+                      <p className="text-[10px] text-slate-500 font-medium">
+                        Measured LLM token consumption across negotiation orchestration turns
+                      </p>
+                    </div>
+                  </div>
+
+                  {analysis?.token_usage?.available ? (
+                    <span className="self-start sm:self-auto rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-[9.5px] font-bold text-emerald-700">
+                      Active Telemetry
+                    </span>
+                  ) : (
+                    <span className="self-start sm:self-auto rounded-full border border-slate-200 bg-slate-100 px-2.5 py-0.5 text-[9.5px] font-bold text-slate-500">
+                      Telemetry Unavailable
+                    </span>
+                  )}
+                </div>
+
+                {analysis?.token_usage?.available ? (
+                  <div className="space-y-5">
+                    {/* KPI Cards */}
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
+                      <div className="rounded-xl border border-white/80 bg-white/70 p-4 shadow-xs">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Tokens</span>
+                        <div className="mt-1 flex items-baseline gap-2">
+                          <span className="text-xl font-extrabold text-slate-900">
+                            {(analysis.token_usage.total_tokens ?? 0).toLocaleString()}
+                          </span>
+                          <span className="text-[10px] font-semibold text-slate-500">tokens</span>
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl border border-white/80 bg-white/70 p-4 shadow-xs">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-blue-500">Prompt / Input</span>
+                        <div className="mt-1 flex items-baseline gap-2">
+                          <span className="text-xl font-extrabold text-blue-600">
+                            {(analysis.token_usage.input_tokens ?? 0).toLocaleString()}
+                          </span>
+                          <span className="text-[10px] font-semibold text-slate-400">
+                            ({analysis.token_usage.input_percentage || 0}%)
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl border border-white/80 bg-white/70 p-4 shadow-xs">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-600">Completion / Output</span>
+                        <div className="mt-1 flex items-baseline gap-2">
+                          <span className="text-xl font-extrabold text-emerald-600">
+                            {(analysis.token_usage.output_tokens ?? 0).toLocaleString()}
+                          </span>
+                          <span className="text-[10px] font-semibold text-slate-400">
+                            ({analysis.token_usage.output_percentage || 0}%)
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl border border-white/80 bg-white/70 p-4 shadow-xs">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-500">LLM Invocations</span>
+                        <div className="mt-1 flex items-baseline gap-2">
+                          <span className="text-xl font-extrabold text-indigo-700">
+                            {analysis.token_usage.llm_calls || 0}
+                          </span>
+                          <span className="text-[10px] font-semibold text-slate-400">calls</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Input vs Output Visual Ratio */}
+                    <div className="rounded-xl border border-white/80 bg-white/60 p-4 space-y-2">
+                      <div className="flex justify-between text-[11px] font-semibold text-slate-700">
+                        <span>Input ({analysis.token_usage.input_percentage || 0}%)</span>
+                        <span>Output ({analysis.token_usage.output_percentage || 0}%)</span>
+                      </div>
+                      <div className="h-2.5 w-full rounded-full bg-slate-100 overflow-hidden flex">
+                        <div
+                          style={{ width: `${analysis.token_usage.input_percentage || 50}%` }}
+                          className="bg-blue-500 transition-all duration-500"
+                        />
+                        <div
+                          style={{ width: `${analysis.token_usage.output_percentage || 50}%` }}
+                          className="bg-emerald-500 transition-all duration-500"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Breakdown by Agent and Breakdown by Model */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* By Agent */}
+                      <div className="rounded-xl border border-white/80 bg-white/70 p-4 space-y-3">
+                        <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-600">
+                          Usage by Agent
+                        </h4>
+                        <div className="space-y-2.5">
+                          {(analysis.token_usage.by_agent || []).map((ag, i) => (
+                            <div key={i} className="flex items-center justify-between text-xs p-2.5 rounded-lg bg-slate-50/80 border border-slate-100">
+                              <div>
+                                <p className="font-bold text-slate-800">{ag.agent_name || ag.role}</p>
+                                <p className="text-[10px] text-slate-500">{ag.calls} turns • {ag.role}</p>
+                              </div>
+                              <div className="text-right font-mono font-bold text-slate-800">
+                                {ag.total_tokens.toLocaleString()} <span className="text-[10px] font-normal text-slate-500">tok</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* By Model */}
+                      <div className="rounded-xl border border-white/80 bg-white/70 p-4 space-y-3">
+                        <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-600">
+                          Usage by Model & Provider
+                        </h4>
+                        <div className="space-y-2.5">
+                          {(analysis.token_usage.by_model || []).map((m, i) => (
+                            <div key={i} className="flex items-center justify-between text-xs p-2.5 rounded-lg bg-slate-50/80 border border-slate-100">
+                              <div>
+                                <p className="font-bold text-slate-800">{m.model}</p>
+                                <span className="text-[9.5px] font-semibold text-blue-600 uppercase tracking-wider">
+                                  {m.provider}
+                                </span>
+                              </div>
+                              <div className="text-right">
+                                <p className="font-mono font-bold text-slate-800">{m.total_tokens.toLocaleString()} tok</p>
+                                <p className="text-[10px] text-slate-500">{m.calls} invocations</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-slate-200/80 bg-slate-50/80 p-5 text-center space-y-1.5">
+                    <p className="text-xs font-semibold text-slate-600">
+                      Token usage telemetry was not captured for this negotiation session or was run using fallback logic.
+                    </p>
+                    <p className="text-[10px] text-slate-400">
+                      Future sessions will record provider usage metadata automatically.
+                    </p>
+                  </div>
+                )}
+              </div>
 
               {/* 12. DYNAMIC EXECUTIVE SUMMARY & STRATEGIC RECOMMENDATIONS */}
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">

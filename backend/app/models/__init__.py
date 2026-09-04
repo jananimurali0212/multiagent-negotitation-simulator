@@ -4,6 +4,7 @@ from app.models.scenario import Scenario
 from app.models.agent import AgentConfiguration, AgentGoal, AgentConstraint
 from app.models.negotiation import NegotiationSession, NegotiationMessage
 from app.models.report import OutcomeReport
+from app.models.llm_usage import LLMUsageRecord
 
 __all__ = [
     "Base",
@@ -15,4 +16,5 @@ __all__ = [
     "NegotiationSession",
     "NegotiationMessage",
     "OutcomeReport",
+    "LLMUsageRecord",
 ]

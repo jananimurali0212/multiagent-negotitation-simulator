@@ -24,23 +24,7 @@ class ReportGenerator:
         if not session or not session.id:
             raise ValueError("Invalid negotiation session provided for report generation.")
 
-        # 1. Check if report already exists for this session (exactly one report per session)
-        stmt = select(OutcomeReport).where(OutcomeReport.session_id == session.id)
-        result = await db.execute(stmt)
-        existing = result.scalar_one_or_none()
-        if existing:
-            # If historical report lacks full dynamic analysis, enrich and commit it
-            if not existing.analysis:
-                existing.analysis = ReportAnalysisService.build_report_analysis(
-                    session=session,
-                    outcome=existing.outcome or outcome,
-                    scenario_title=existing.scenario_title,
-                )
-                await db.commit()
-                await db.refresh(existing)
-            return existing
-
-        # 2. Eagerly load session with all relationships using explicit async query
+        # 1. Eagerly load session with all relationships using explicit async query
         full_stmt = (
             select(NegotiationSession)
             .where(NegotiationSession.id == session.id)
@@ -55,7 +39,33 @@ class ReportGenerator:
         if loaded_session:
             session = loaded_session
 
-        # 3. Scenario-specific title lookup
+        # 2. Retrieve authoritative token usage summary
+        from app.services.llm_usage_service import LLMUsageService
+        token_usage_summary = await LLMUsageService.get_session_token_summary(session.id, db)
+
+        # 3. Check if report already exists for this session (exactly one report per session)
+        stmt = select(OutcomeReport).where(OutcomeReport.session_id == session.id)
+        result = await db.execute(stmt)
+        existing = result.scalar_one_or_none()
+        if existing:
+            # If historical report lacks full dynamic analysis or token_usage, enrich and commit it
+            if not existing.analysis or "token_usage" not in (existing.analysis or {}):
+                enriched_analysis = dict(existing.analysis or {})
+                if not enriched_analysis:
+                    enriched_analysis = ReportAnalysisService.build_report_analysis(
+                        session=session,
+                        outcome=existing.outcome or outcome,
+                        scenario_title=existing.scenario_title,
+                        token_usage=token_usage_summary,
+                    )
+                else:
+                    enriched_analysis["token_usage"] = token_usage_summary
+                existing.analysis = enriched_analysis
+                await db.commit()
+                await db.refresh(existing)
+            return existing
+
+        # 4. Scenario-specific title lookup
         titles = {
             "vendor-pricing": "Vendor Pricing Negotiation",
             "job-offer": "Job Offer Negotiation",
@@ -63,12 +73,13 @@ class ReportGenerator:
         }
         scenario_title = titles.get(session.scenario_id, (session.scenario_id or "negotiation").replace("-", " ").title())
 
-        # 4. Generate complete dynamic intelligence analysis
+        # 5. Generate complete dynamic intelligence analysis
         try:
             analysis = ReportAnalysisService.build_report_analysis(
                 session=session,
                 outcome=outcome,
                 scenario_title=scenario_title,
+                token_usage=token_usage_summary,
             )
         except Exception as e:
             logger.error(f"Error generating intelligence analysis for session {session.id}: {e}", exc_info=True)

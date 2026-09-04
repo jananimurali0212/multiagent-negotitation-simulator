@@ -18,6 +18,7 @@ import {
   FileText,
   AlertTriangle,
   Clock,
+  Trash2,
 } from 'lucide-react';
 
 interface SimulationMessage {
@@ -41,6 +42,7 @@ export const SimulationArenaScreen: React.FC = () => {
     activeSessionId,
     setActiveSessionId,
     setActiveSessionStatus,
+    resetSimulation,
   } = useStore();
 
   const [sessionId, setSessionId] = useState<string | null>(activeSessionId);
@@ -327,7 +329,7 @@ export const SimulationArenaScreen: React.FC = () => {
         setStatus(finalStatus);
         setActiveSessionStatus(finalStatus);
         if (currentSessionId) {
-          setSelectedReportId(currentSessionId);
+          setSelectedReportId((stepRes as any).report_id || currentSessionId);
         }
         setIsCompletedModalOpen(true);
       } else if (!isPausedRef.current) {
@@ -426,23 +428,46 @@ export const SimulationArenaScreen: React.FC = () => {
     setIsStopModalOpen(true);
   };
 
-  // Handle Stop Modal Choices
-  const handleStopModalAction = async (action: 'restart' | 'new_scenario' | 'view_report') => {
+  // Handle State-Aware Stop Modal Choices
+  const handleStopModalAction = async (action: 'discard' | 'select_new_scenario' | 'resume' | 'partial_report') => {
     setIsStopModalOpen(false);
-    if (action === 'restart') {
-      initSession();
-    } else if (action === 'new_scenario') {
-      navigate('/setup/scenario');
-    } else if (action === 'view_report') {
-      if (sessionId) {
-        try {
-          await apiRequest(`/negotiations/${sessionId}/stop`, { method: 'POST' });
-          setSelectedReportId(sessionId);
-        } catch (e) {
-          console.warn('Stop simulation error:', e);
+    if (action === 'resume') {
+      setIsPaused(false);
+      return;
+    }
+
+    if (sessionId) {
+      try {
+        const res = await negotiationApi.stopNegotiation(sessionId, action);
+        if (action === 'discard') {
+          resetSimulation();
+          setActiveSessionId(null);
+          navigate('/dashboard');
+          return;
         }
+        if (action === 'select_new_scenario') {
+          navigate('/setup/scenario');
+          return;
+        }
+        if (action === 'partial_report') {
+          const reportId = (res as any)?.report_id || sessionId;
+          setSelectedReportId(reportId);
+          setStatus('terminated');
+          navigate('/reports');
+          return;
+        }
+      } catch (e) {
+        console.warn('Stop negotiation error:', e);
       }
-      setStatus('terminated');
+    }
+
+    if (action === 'discard') {
+      resetSimulation();
+      navigate('/dashboard');
+    } else if (action === 'select_new_scenario') {
+      navigate('/setup/scenario');
+    } else if (action === 'partial_report') {
+      if (sessionId) setSelectedReportId(sessionId);
       navigate('/reports');
     }
   };
@@ -891,31 +916,64 @@ export const SimulationArenaScreen: React.FC = () => {
               </p>
             </div>
 
-            <div className="space-y-3 pt-2">
-              <button
-                onClick={() => handleStopModalAction('restart')}
-                className="w-full py-3.5 px-5 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center justify-center gap-2.5 shadow-md hover:shadow-lg transition-all border-none cursor-pointer"
-              >
-                <RotateCcw size={16} />
-                <span>Start New Negotiation</span>
-              </button>
+            {/* Case 1: Start of Negotiation (messages.length === 0) */}
+            {messages.length === 0 ? (
+              <div className="space-y-3 pt-2">
+                <p className="text-[11px] font-semibold text-slate-500">
+                  No negotiation turns have occurred yet. You can discard this negotiation or select a new scenario.
+                </p>
+                <button
+                  onClick={() => handleStopModalAction('discard')}
+                  className="w-full py-3.5 px-5 rounded-2xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs flex items-center justify-center gap-2.5 shadow-md hover:shadow-lg transition-all border-none cursor-pointer"
+                >
+                  <Trash2 size={16} />
+                  <span>Discard Negotiation</span>
+                </button>
 
-              <button
-                onClick={() => handleStopModalAction('new_scenario')}
-                className="w-full py-3.5 px-5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-[#14234D] font-bold text-xs flex items-center justify-center gap-2.5 transition-all border-none cursor-pointer"
-              >
-                <Compass size={16} className="text-slate-600" />
-                <span>Select New Scenario</span>
-              </button>
+                <button
+                  onClick={() => handleStopModalAction('select_new_scenario')}
+                  className="w-full py-3.5 px-5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-[#14234D] font-bold text-xs flex items-center justify-center gap-2.5 transition-all border-none cursor-pointer"
+                >
+                  <Compass size={16} className="text-slate-600" />
+                  <span>Select New Scenario</span>
+                </button>
+              </div>
+            ) : (
+              /* Case 2: Middle of Negotiation (messages.length > 0) */
+              <div className="space-y-3 pt-2">
+                <button
+                  onClick={() => handleStopModalAction('resume')}
+                  className="w-full py-3.5 px-5 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center justify-center gap-2.5 shadow-md hover:shadow-lg transition-all border-none cursor-pointer"
+                >
+                  <Play size={16} />
+                  <span>Resume Negotiation</span>
+                </button>
 
-              <button
-                onClick={() => handleStopModalAction('view_report')}
-                className="w-full py-3.5 px-5 rounded-2xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-xs flex items-center justify-center gap-2.5 border border-emerald-200 transition-all cursor-pointer"
-              >
-                <FileText size={16} />
-                <span>View Outcome & Diagnostic Report</span>
-              </button>
-            </div>
+                <button
+                  onClick={() => handleStopModalAction('partial_report')}
+                  className="w-full py-3.5 px-5 rounded-2xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-xs flex items-center justify-center gap-2.5 border border-emerald-200 transition-all cursor-pointer"
+                >
+                  <FileText size={16} />
+                  <span>Generate Report Upto Negotiation Done</span>
+                </button>
+
+                <button
+                  onClick={() => handleStopModalAction('select_new_scenario')}
+                  className="w-full py-3.5 px-5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-[#14234D] font-bold text-xs flex items-center justify-center gap-2.5 transition-all border-none cursor-pointer"
+                >
+                  <Compass size={16} className="text-slate-600" />
+                  <span>Select New Scenario</span>
+                </button>
+
+                <button
+                  onClick={() => handleStopModalAction('discard')}
+                  className="w-full py-3 px-5 rounded-2xl border border-red-200 bg-red-50/60 hover:bg-red-100 text-red-600 font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
+                >
+                  <Trash2 size={15} />
+                  <span>Discard Negotiation</span>
+                </button>
+              </div>
+            )}
 
             <div className="pt-2 border-t border-slate-100">
               <button

@@ -136,6 +136,10 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 clean_text = clean_text[:-3]
             clean_text = clean_text.strip()
 
+            raw_usage = res_json.get("usage")
+            from app.services.llm_usage_service import LLMUsageService
+            usage = LLMUsageService.normalize_openai_usage(raw_usage)
+
             data = json.loads(clean_text)
             return AgentDecision(
                 action=data.get("action", "counteroffer"),
@@ -144,6 +148,9 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 offer=data.get("offer", {}),
                 concession_percentage=float(data.get("concession_percentage", 5.0)),
                 confidence_score=float(data.get("confidence_score", 0.9)),
+                provider=self._name,
+                model=self.model_name,
+                token_usage=usage,
             )
 
         except json.JSONDecodeError as e:

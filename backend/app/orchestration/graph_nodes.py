@@ -112,6 +112,12 @@ class LangGraphNegotiationEngine:
 
         # Run Phase 3 DecisionValidator
         val_res, validated_decision, concession_info = DecisionValidator.validate_decision(norm_state, raw_decision)
+        if not getattr(validated_decision, "provider", None) and getattr(raw_decision, "provider", None):
+            validated_decision.provider = raw_decision.provider
+        if not getattr(validated_decision, "model", None) and getattr(raw_decision, "model", None):
+            validated_decision.model = raw_decision.model
+        if not getattr(validated_decision, "token_usage", None) and getattr(raw_decision, "token_usage", None):
+            validated_decision.token_usage = raw_decision.token_usage
 
         # Apply validated state transition
         updated_norm_state = StateTransitionEngine.apply_decision(

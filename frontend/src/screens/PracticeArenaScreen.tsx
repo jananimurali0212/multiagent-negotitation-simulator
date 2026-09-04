@@ -13,6 +13,11 @@ import {
   Zap,
   Target,
   ShieldAlert,
+  Play,
+  X,
+  Compass,
+  FileText,
+  Trash2,
 } from 'lucide-react';
 
 interface ChatMessage {
@@ -37,6 +42,7 @@ export const PracticeArenaScreen: React.FC = () => {
     activeSessionId,
     setActiveSessionId,
     setActiveSessionStatus,
+    resetPractice,
   } = useStore();
 
   const [sessionId, setSessionId] = useState<string | null>(activeSessionId);
@@ -48,6 +54,7 @@ export const PracticeArenaScreen: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState('');
   const [isNavGuardOpen, setIsNavGuardOpen] = useState(false);
   const [isCompletedModalOpen, setIsCompletedModalOpen] = useState(false);
+  const [isStopModalOpen, setIsStopModalOpen] = useState(false);
   const [redirectCountdown, setRedirectCountdown] = useState(4);
 
   // Auto-redirect countdown when completion modal opens
@@ -319,7 +326,7 @@ export const PracticeArenaScreen: React.FC = () => {
         setStatus(finalStatus as any);
         setActiveSessionStatus(finalStatus);
         if (sessionId) {
-          setSelectedReportId(sessionId);
+          setSelectedReportId((turnRes as any).report_id || sessionId);
         }
         setIsCompletedModalOpen(true);
       }
@@ -332,14 +339,46 @@ export const PracticeArenaScreen: React.FC = () => {
     }
   };
 
-  const handleStopNegotiation = async () => {
-    if (!sessionId) return;
-    try {
-      await apiRequest(`/negotiations/${sessionId}/stop`, { method: 'POST' });
-    } catch (err) {
-      console.warn('Stop session fallback:', err);
-    } finally {
-      setStatus('terminated');
+  const handleStopNegotiation = () => {
+    setIsStopModalOpen(true);
+  };
+
+  const handleStopModalAction = async (action: 'discard' | 'select_new_scenario' | 'resume' | 'partial_report') => {
+    setIsStopModalOpen(false);
+    if (action === 'resume') return;
+
+    if (sessionId) {
+      try {
+        const res = await negotiationApi.stopNegotiation(sessionId, action);
+        if (action === 'discard') {
+          resetPractice();
+          setActiveSessionId(null);
+          navigate('/dashboard');
+          return;
+        }
+        if (action === 'select_new_scenario') {
+          navigate('/setup/scenario');
+          return;
+        }
+        if (action === 'partial_report') {
+          const reportId = (res as any)?.report_id || sessionId;
+          setSelectedReportId(reportId);
+          setStatus('terminated');
+          navigate('/reports');
+          return;
+        }
+      } catch (e) {
+        console.warn('Stop negotiation error:', e);
+      }
+    }
+
+    if (action === 'discard') {
+      resetPractice();
+      navigate('/dashboard');
+    } else if (action === 'select_new_scenario') {
+      navigate('/setup/scenario');
+    } else if (action === 'partial_report') {
+      if (sessionId) setSelectedReportId(sessionId);
       navigate('/reports');
     }
   };
@@ -730,6 +769,99 @@ export const PracticeArenaScreen: React.FC = () => {
                 className="w-full py-3 px-5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs flex items-center justify-center gap-2 transition-all border-none cursor-pointer"
               >
                 <span>Go to Dashboard</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* STATE-AWARE STOP OPTIONS POPUP MODAL */}
+      {isStopModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl border border-white/80 shadow-2xl max-w-md w-full p-7 space-y-6 text-center animate-in zoom-in-95 duration-200 relative">
+            <button
+              onClick={() => setIsStopModalOpen(false)}
+              className="absolute top-5 right-5 text-slate-400 hover:text-slate-600 p-1.5 rounded-full hover:bg-slate-100 transition-all border-none cursor-pointer"
+            >
+              <X size={18} />
+            </button>
+
+            <div className="w-14 h-14 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center mx-auto shadow-inner">
+              <Square size={24} fill="currentColor" />
+            </div>
+
+            <div className="space-y-2">
+              <h3 className="text-lg font-extrabold text-[#14234D]">Practice Negotiation Stopped</h3>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                The practice session has been paused. Please select an action below to proceed:
+              </p>
+            </div>
+
+            {/* Case 1: Start of Negotiation (messages.length === 0) */}
+            {messages.length === 0 ? (
+              <div className="space-y-3 pt-2">
+                <p className="text-[11px] font-semibold text-slate-500">
+                  No negotiation turns have occurred yet. You can discard this negotiation or select a new scenario.
+                </p>
+                <button
+                  onClick={() => handleStopModalAction('discard')}
+                  className="w-full py-3.5 px-5 rounded-2xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs flex items-center justify-center gap-2.5 shadow-md hover:shadow-lg transition-all border-none cursor-pointer"
+                >
+                  <Trash2 size={16} />
+                  <span>Discard Negotiation</span>
+                </button>
+
+                <button
+                  onClick={() => handleStopModalAction('select_new_scenario')}
+                  className="w-full py-3.5 px-5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-[#14234D] font-bold text-xs flex items-center justify-center gap-2.5 transition-all border-none cursor-pointer"
+                >
+                  <Compass size={16} className="text-slate-600" />
+                  <span>Select New Scenario</span>
+                </button>
+              </div>
+            ) : (
+              /* Case 2: Middle of Negotiation (messages.length > 0) */
+              <div className="space-y-3 pt-2">
+                <button
+                  onClick={() => handleStopModalAction('resume')}
+                  className="w-full py-3.5 px-5 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center justify-center gap-2.5 shadow-md hover:shadow-lg transition-all border-none cursor-pointer"
+                >
+                  <Play size={16} />
+                  <span>Resume Negotiation</span>
+                </button>
+
+                <button
+                  onClick={() => handleStopModalAction('partial_report')}
+                  className="w-full py-3.5 px-5 rounded-2xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold text-xs flex items-center justify-center gap-2.5 border border-emerald-200 transition-all cursor-pointer"
+                >
+                  <FileText size={16} />
+                  <span>Generate Report Upto Negotiation Done</span>
+                </button>
+
+                <button
+                  onClick={() => handleStopModalAction('select_new_scenario')}
+                  className="w-full py-3.5 px-5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-[#14234D] font-bold text-xs flex items-center justify-center gap-2.5 transition-all border-none cursor-pointer"
+                >
+                  <Compass size={16} className="text-slate-600" />
+                  <span>Select New Scenario</span>
+                </button>
+
+                <button
+                  onClick={() => handleStopModalAction('discard')}
+                  className="w-full py-3 px-5 rounded-2xl border border-red-200 bg-red-50/60 hover:bg-red-100 text-red-600 font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer"
+                >
+                  <Trash2 size={15} />
+                  <span>Discard Negotiation</span>
+                </button>
+              </div>
+            )}
+
+            <div className="pt-2 border-t border-slate-100">
+              <button
+                onClick={() => setIsStopModalOpen(false)}
+                className="text-xs font-semibold text-slate-400 hover:text-slate-600 transition-all border-none bg-transparent cursor-pointer"
+              >
+                Resume Negotiation
               </button>
             </div>
           </div>

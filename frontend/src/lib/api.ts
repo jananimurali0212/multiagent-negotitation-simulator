@@ -186,6 +186,8 @@ export const negotiationApi = {
     apiRequest<NegotiationStepResponse>(`/negotiations/${sessionId}/stop?action=pause`, {
       method: 'POST',
     }),
+  getTokenUsage: (sessionId: string) =>
+    apiRequest<TokenUsageSummary>(`/negotiations/${sessionId}/token-usage`),
 };
 
 // Dashboard API
@@ -230,6 +232,16 @@ export interface TimelineEvent {
   offer?: Record<string, any>;
   what_changed?: string | null;
   reason?: string;
+  token_usage?: {
+    usage_available?: boolean;
+    provider?: string;
+    model?: string;
+    input_tokens?: number | null;
+    output_tokens?: number | null;
+    total_tokens?: number | null;
+    is_human?: boolean;
+    label?: string;
+  } | null;
 }
 
 export interface ParameterProgression {
@@ -409,6 +421,65 @@ export interface ReportIntelligenceAnalysis {
   final_terms?: Record<string, any>;
   summary?: string;
   recommendations?: string;
+  token_usage?: TokenUsageSummary;
+}
+
+export interface TurnTokenUsage {
+  id: string;
+  round: number;
+  turn_index: number;
+  agent_name?: string;
+  agent_role?: string;
+  provider: string;
+  model: string;
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  total_tokens?: number | null;
+  usage_available: boolean;
+  status: string;
+  operation_type: string;
+}
+
+export interface TokenUsageByAgent {
+  agent_name: string;
+  role: string;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  calls: number;
+  usage_available: boolean;
+}
+
+export interface TokenUsageByRound {
+  round_number: number;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  calls: number;
+}
+
+export interface TokenUsageByModel {
+  provider: string;
+  model: string;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  calls: number;
+}
+
+export interface TokenUsageSummary {
+  available: boolean;
+  reason?: string | null;
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  total_tokens?: number | null;
+  llm_calls: number;
+  input_percentage: number;
+  output_percentage: number;
+  by_agent: TokenUsageByAgent[];
+  by_round: TokenUsageByRound[];
+  by_model: TokenUsageByModel[];
+  turn_usage: TurnTokenUsage[];
 }
 
 // Outcome Reports API

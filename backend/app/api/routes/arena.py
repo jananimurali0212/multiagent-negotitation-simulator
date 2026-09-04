@@ -95,7 +95,13 @@ async def stop_negotiation(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Manually pauses or stops an ongoing negotiation session."""
+    """Manually pauses or stops an ongoing negotiation session.
+    Supported actions:
+    - 'pause': Halts runner, sets status='paused'.
+    - 'discard': Halts runner, terminates session without generating report.
+    - 'partial_report' (or 'terminate', 'report', 'finalize'): Halts runner, generates stopped partial report.
+    - 'select_new_scenario': Halts runner, keeps session paused for potential resumption.
+    """
     session = await _load_full_session(session_id, db)
     if session.user_id != current_user.id:
         raise ForbiddenError()
@@ -103,7 +109,9 @@ async def stop_negotiation(
     # Always halt background execution task
     stop_background_simulation(session.id)
 
-    if action in ["finalize", "report", "stop", "terminate"]:
+    clean_action = (action or "pause").lower().strip()
+
+    if clean_action in ["partial_report", "finalize", "report", "stop", "terminate"]:
         report = await OrchestratorService.finalize_negotiation_session(
             session=session,
             terminal_status="terminated",
@@ -124,7 +132,21 @@ async def stop_negotiation(
             report_status="generated" if report else "failed",
         )
 
-    # Default action: pause
+    if clean_action == "discard":
+        session.status = "terminated"
+        await db.commit()
+        return TurnResultResponse(
+            status="terminated",
+            round=session.current_round,
+            current_turn_speaker="System",
+            message=None,
+            agreement_reached=False,
+            final_terms=session.final_terms,
+            report_id=None,
+            report_status="not_generated",
+        )
+
+    # Default actions: 'pause' or 'select_new_scenario'
     session.status = "paused"
     await db.commit()
 
@@ -138,3 +160,19 @@ async def stop_negotiation(
         report_id=None,
         report_status="not_generated",
     )
+
+
+@router.get("/{session_id}/token-usage")
+async def get_session_token_usage(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Retrieves authoritative LLM token usage telemetry for the negotiation session."""
+    session = await _load_full_session(session_id, db)
+    if session.user_id != current_user.id:
+        raise ForbiddenError()
+
+    from app.services.llm_usage_service import LLMUsageService
+    return await LLMUsageService.get_session_token_summary(session.id, db)
+

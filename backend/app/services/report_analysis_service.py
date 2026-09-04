@@ -23,6 +23,7 @@ class ReportAnalysisService:
         outcome: str,
         scenario_title: str,
         scenario_objective: Optional[str] = None,
+        token_usage: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Master method to construct the full dynamic intelligence payload."""
         agents = list(session.agents or [])
@@ -48,7 +49,7 @@ class ReportAnalysisService:
         config_snapshot = cls._analyze_configuration_snapshot(agents, final_terms)
 
         # 3. Negotiation Timeline / Journey
-        timeline = cls._analyze_negotiation_timeline(messages, agents)
+        timeline = cls._analyze_negotiation_timeline(messages, agents, token_usage=token_usage)
 
         # 4. Offer Evolution & Charts
         offer_evolution = cls._analyze_offer_evolution(messages, agents)
@@ -96,6 +97,20 @@ class ReportAnalysisService:
             "final_terms": final_terms,
             "summary": summary,
             "recommendations": recommendations,
+            "token_usage": token_usage or {
+                "available": False,
+                "reason": "Token usage unavailable for this session",
+                "input_tokens": None,
+                "output_tokens": None,
+                "total_tokens": None,
+                "llm_calls": 0,
+                "input_percentage": 0.0,
+                "output_percentage": 0.0,
+                "by_agent": [],
+                "by_round": [],
+                "by_model": [],
+                "turn_usage": [],
+            },
         }
 
     @classmethod
@@ -181,9 +196,12 @@ class ReportAnalysisService:
         cls,
         messages: List[NegotiationMessage],
         agents: List[AgentConfiguration],
+        token_usage: Optional[Dict[str, Any]] = None,
     ) -> List[Dict[str, Any]]:
         timeline = []
         prev_offer: Optional[Dict[str, Any]] = None
+        turn_usage_records = (token_usage or {}).get("turn_usage", []) if token_usage else []
+        turn_usage_by_idx = {r.get("turn_index"): r for r in turn_usage_records if r.get("turn_index") is not None}
 
         for idx, msg in enumerate(messages):
             sender = msg.sender or "Participant"
@@ -234,6 +252,25 @@ class ReportAnalysisService:
             elif action == "Acceptance":
                 reason = f"Identified mutual compatibility with configured constraints."
 
+            # Per-turn token usage telemetry
+            turn_telemetry = None
+            if msg.is_user:
+                turn_telemetry = {
+                    "usage_available": False,
+                    "is_human": True,
+                    "label": "Not applicable — human message",
+                }
+            elif idx in turn_usage_by_idx:
+                raw_t = turn_usage_by_idx[idx]
+                turn_telemetry = {
+                    "usage_available": raw_t.get("usage_available", False),
+                    "provider": raw_t.get("provider"),
+                    "model": raw_t.get("model"),
+                    "input_tokens": raw_t.get("input_tokens"),
+                    "output_tokens": raw_t.get("output_tokens"),
+                    "total_tokens": raw_t.get("total_tokens"),
+                }
+
             timeline.append({
                 "turn_index": idx,
                 "round": round_num,
@@ -245,6 +282,7 @@ class ReportAnalysisService:
                 "offer": offer,
                 "what_changed": what_changed,
                 "reason": reason,
+                "token_usage": turn_telemetry,
             })
 
             if offer:

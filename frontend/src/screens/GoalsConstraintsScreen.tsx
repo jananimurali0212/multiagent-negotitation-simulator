@@ -26,8 +26,10 @@ import {
   Check,
   Package,
   RefreshCw,
+  RotateCcw,
   Shield,
 } from 'lucide-react';
+import { negotiationApi } from '../lib/api';
 
 export const VENDOR_PRICING_INDUSTRIES = [
   'IT / Software',
@@ -2962,7 +2964,55 @@ export const GoalsConstraintsScreen: React.FC = () => {
     });
 
     setErrorMsg(null);
+
+    // Persist goals and constraints to backend session if activeSessionId exists
+    const { activeSessionId, configuredAgents } = useStore.getState();
+    if (activeSessionId) {
+      try {
+        const payload = configuredAgents.map((a: any) => ({
+          id: a.id,
+          name: a.name,
+          role: a.role,
+          personality: a.personality,
+          experience: a.experience,
+          negotiation_parameters: a.negotiation_parameters || {},
+          goals: a.goals || [],
+          constraints: a.constraints || [],
+        }));
+        negotiationApi.updateGoalsConstraints(activeSessionId, payload).catch((e) => console.warn('Sync goals note:', e));
+      } catch (err) {
+        console.warn('Sync goals note:', err);
+      }
+    }
+
     navigate('/setup/review');
+  };
+
+  const handleReset = () => {
+    activeAgents.forEach((agent) => {
+      updateAgentConfig(agent.id, {
+        targetPrice: '',
+        minPrice: '',
+        maxBudget: '',
+        paymentTerms: '',
+        deliveryRequirement: '',
+        warrantySupport: '',
+        quantityVolume: '',
+        targetSalary: '',
+        minSalary: '',
+        maxSalary: '',
+        targetAllocation: '',
+        minAllocation: '',
+        maxAllocation: '',
+        departmentPriority: '',
+        budgetJustification: '',
+        goals: [],
+        constraints: [],
+      });
+    });
+    setContinueAttempted(false);
+    setErrorMsg(null);
+    setWizardStep(1);
   };
 
   const renderCurrencySelector = (agent: any) => (
@@ -3695,21 +3745,32 @@ export const GoalsConstraintsScreen: React.FC = () => {
           </div>
 
           <div className="mt-5 flex items-center justify-between">
-            <button
-              type="button"
-              onClick={() => {
-                if (selectedScenario.id === 'job-offer' && wizardStep > 1) {
-                  setWizardStep(prev => prev - 1);
-                } else {
-                  navigate('/setup/agents');
-                }
-              }}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-full border text-xs font-medium transition-all hover:-translate-y-0.5 hover:shadow-sm cursor-pointer"
-              style={{ background: 'rgba(255,255,255,0.72)', borderColor: 'rgba(30,34,48,0.10)', color: '#1E2230' }}
-            >
-              <ArrowLeft size={14} />
-              {selectedScenario.id === 'job-offer' && wizardStep > 1 ? 'Previous Step' : 'Back'}
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  if (selectedScenario.id === 'job-offer' && wizardStep > 1) {
+                    setWizardStep(prev => prev - 1);
+                  } else {
+                    navigate('/setup/agents');
+                  }
+                }}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-full border text-xs font-medium transition-all hover:-translate-y-0.5 hover:shadow-sm cursor-pointer"
+                style={{ background: 'rgba(255,255,255,0.72)', borderColor: 'rgba(30,34,48,0.10)', color: '#1E2230' }}
+              >
+                <ArrowLeft size={14} />
+                {selectedScenario.id === 'job-offer' && wizardStep > 1 ? 'Previous Step' : 'Back'}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleReset}
+                className="flex items-center gap-1.5 px-4 py-2.5 rounded-full text-xs font-semibold text-slate-600 bg-slate-100/90 border border-slate-200 hover:bg-slate-200/80 shadow-xs transition-all cursor-pointer"
+                title="Reset goals and constraints for this step"
+              >
+                <RotateCcw size={14} /> Reset
+              </button>
+            </div>
 
             <button
               type="button"

@@ -52,6 +52,7 @@ class NegotiationSession(Base):
     agents = relationship("AgentConfiguration", back_populates="session", cascade="all, delete-orphan")
     messages = relationship("NegotiationMessage", back_populates="session", cascade="all, delete-orphan")
     report = relationship("OutcomeReport", back_populates="session", uselist=False, cascade="all, delete-orphan")
+    llm_usages = relationship("LLMUsageRecord", back_populates="session", cascade="all, delete-orphan")
 
     @property
     def report_id(self) -> Optional[str]:

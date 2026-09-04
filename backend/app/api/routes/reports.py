@@ -47,10 +47,13 @@ async def _enrich_report_analysis_if_needed(report: OutcomeReport, db: AsyncSess
         res = await db.execute(stmt)
         session = res.scalar_one_or_none()
         if session:
+            from app.services.llm_usage_service import LLMUsageService
+            token_usage_summary = await LLMUsageService.get_session_token_summary(session.id, db)
             analysis = ReportAnalysisService.build_report_analysis(
                 session=session,
                 outcome=report.outcome,
                 scenario_title=report.scenario_title,
+                token_usage=token_usage_summary,
             )
             report.analysis = analysis
             await db.commit()

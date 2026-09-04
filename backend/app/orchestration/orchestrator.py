@@ -315,6 +315,34 @@ class OrchestratorService:
             )
             db.add(ai_msg)
 
+            # Record authoritative LLM token usage telemetry for this turn
+            from app.services.llm_usage_service import LLMUsageService
+            latest_decision_dict = initial_state.get("latest_decision") or {}
+            dec_provider = latest_decision_dict.get("provider") or "rule_fallback"
+            dec_model = latest_decision_dict.get("model") or "unknown"
+            dec_usage = latest_decision_dict.get("token_usage") or {
+                "input_tokens": None,
+                "output_tokens": None,
+                "total_tokens": None,
+                "usage_available": False,
+            }
+            active_speaker_agent = agents[speaker_idx] if speaker_idx < len(agents) else None
+            await LLMUsageService.record_usage(
+                db=db,
+                session_id=session.id,
+                message_id=ai_msg.id,
+                agent_id=active_speaker_agent.id if active_speaker_agent else None,
+                agent_name=ai_msg.sender,
+                agent_role=ai_msg.role,
+                round_number=calculated_round,
+                turn_index=turn_count,
+                provider=dec_provider,
+                model=dec_model,
+                usage_data=dec_usage,
+                operation_type="negotiation_turn",
+                status="success",
+            )
+
             # Update latest offer tracking on session
             if ai_msg.offer_data and isinstance(ai_msg.offer_data, dict) and len(ai_msg.offer_data) > 0:
                 session.latest_offer = ai_msg.offer_data
@@ -375,6 +403,7 @@ class OrchestratorService:
                 "final_terms": session.final_terms,
                 "report_id": report_id,
                 "report_status": report_status,
+                "token_usage": dec_usage,
             }
 
     @classmethod

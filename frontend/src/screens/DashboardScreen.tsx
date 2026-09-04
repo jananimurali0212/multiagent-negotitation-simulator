@@ -25,6 +25,7 @@ import {
   Users,
   Zap,
   AlertTriangle,
+  Trash2,
 } from 'lucide-react';
 
 /* ============================================================
@@ -393,9 +394,11 @@ export const DashboardScreen: React.FC = () => {
   const handleResumeSession = async (session: any) => {
     const sessionId = session.session_id || session.id;
     try {
-      await negotiationApi.resumeSession(sessionId);
-      await resumeSession(sessionId);
-      navigate(session.mode === 'human-ai' ? '/arena/practice' : '/arena/simulation');
+      const targetRoute = await resumeSession(sessionId);
+      if (session.status === 'paused') {
+        await negotiationApi.resumeSession(sessionId);
+      }
+      navigate(targetRoute || (session.mode === 'human-ai' ? '/arena/practice' : '/arena/simulation'));
     } catch (err) {
       console.error('Failed to resume negotiation:', err);
     }
@@ -442,11 +445,18 @@ export const DashboardScreen: React.FC = () => {
   };
 
   const handleViewReport = (session: any) => {
-    if (session.report_id) {
-      setSelectedReportId(session.report_id);
+    const targetId = session.report_id || session.session_id || session.id;
+    if (targetId) {
+      setSelectedReportId(targetId);
     }
     navigate('/reports');
   };
+
+  // Find real incomplete or interrupted session
+  const interruptedSession = summaryData?.recent_negotiations?.find((s: any) => {
+    const st = (s.status || '').toLowerCase();
+    return ['setup', 'ready', 'paused', 'waiting_for_human', 'running'].includes(st) && !['finished', 'deadlock', 'terminated'].includes(st);
+  });
 
   useEffect(() => {
     let isMounted = true;
@@ -612,61 +622,61 @@ export const DashboardScreen: React.FC = () => {
           />
         </section>
 
-        {/* QUICK ACTIONS & SCENARIO OPTIONS WITH SEMANTIC SOFT BACKGROUND TINTS */}
-        <section className="grid grid-cols-1 gap-5 xl:grid-cols-[400px_minmax(0,1fr)]">
-          <div className={`rounded-[23px] p-5 ${glassPrimary}`}>
-            <div className="mb-4 flex items-center gap-2">
-              <Zap size={16} className="text-[#3B82F6]" />
-              <h2 className="text-[12px] font-semibold uppercase tracking-[0.12em] text-[#0F172A]">
-                Quick Actions
-              </h2>
-            </div>
+        {/* CHOOSE YOUR SCENARIO (FULL WIDTH) & DISCONTINUED / INTERRUPTED NEGOTIATION */}
+        <section className="w-full">
+          <div className={`rounded-[23px] p-6 ${glassPrimary} space-y-5`}>
+            {/* TOP CARD: DISCONTINUED / INTERRUPTED NEGOTIATION (DISPLAYED ONLY IF REAL PERSISTED INCOMPLETE SESSION EXISTS) */}
+            {interruptedSession && (
+              <div className="rounded-[18px] border border-amber-300/80 bg-gradient-to-r from-amber-50/90 via-orange-50/70 to-amber-50/90 p-4 shadow-sm backdrop-blur-md">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="flex items-start gap-3.5">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/15 text-amber-600 border border-amber-500/25">
+                      <Clock size={20} />
+                    </div>
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded-full border border-amber-300 bg-amber-100/90 px-2 py-0.5 text-[9px] font-bold text-amber-800 uppercase tracking-wider">
+                          Interrupted Negotiation
+                        </span>
+                        <h3 className="text-sm font-bold text-slate-900">
+                          {interruptedSession.scenario_title || interruptedSession.scenario_id?.replace('-', ' ').toUpperCase()}
+                        </h3>
+                        <span className="text-xs font-semibold text-slate-500">
+                          • {interruptedSession.mode === 'human-ai' ? 'Human vs AI Practice' : 'AI vs AI Simulation'}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs text-slate-600">
+                        Status: <span className="font-semibold text-slate-800 capitalize">{interruptedSession.status}</span>
+                        {' '}• Last active {(interruptedSession.updated_at || interruptedSession.created_at) ? new Date(interruptedSession.updated_at || interruptedSession.created_at || '').toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Recently'}
+                      </p>
+                    </div>
+                  </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <QuickActionCard
-                title="Start New Negotiation"
-                description="Begin a new negotiation simulation"
-                icon={<Play size={16} />}
-                accent="#3B82F6"
-                soft="rgba(59,130,246,0.08)"
-                borderColor="rgba(59,130,246,0.25)"
-                path="/setup/scenario"
-              />
+                  <div className="flex items-center gap-2 self-end md:self-center shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => handleResumeSession(interruptedSession)}
+                      className="flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white shadow-xs hover:bg-blue-700 transition-all cursor-pointer border-none"
+                    >
+                      <Play size={13} />
+                      Resume
+                      <ArrowRight size={13} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteSession(interruptedSession)}
+                      className="flex items-center gap-1.5 rounded-xl border border-red-200 bg-white/80 px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 transition-all cursor-pointer"
+                      title="Discard interrupted session"
+                    >
+                      <Trash2 size={13} />
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
-              <QuickActionCard
-                title="Explore Scenarios"
-                description="Choose from three enterprise scenarios"
-                icon={<Layers size={16} />}
-                accent="#C86D51"
-                soft="rgba(200,109,81,0.08)"
-                borderColor="rgba(200,109,81,0.25)"
-                path="/setup/scenario"
-              />
-
-              <QuickActionCard
-                title="View Recent Results"
-                description="Review your previous outcomes"
-                icon={<BarChart3 size={16} />}
-                accent="#3B82F6"
-                soft="rgba(59,130,246,0.08)"
-                borderColor="rgba(59,130,246,0.25)"
-                path="/reports"
-              />
-
-              <QuickActionCard
-                title="How It Works"
-                description="Understand the negotiation process"
-                icon={<BookOpen size={16} />}
-                accent="#1E2230"
-                soft="rgba(30,34,48,0.06)"
-                borderColor="rgba(30,34,48,0.18)"
-                path="/help"
-              />
-            </div>
-          </div>
-
-          <div className={`rounded-[23px] p-5 ${glassPrimary}`}>
-            <div className="mb-4 flex items-start justify-between">
+            <div className="flex items-start justify-between">
               <div>
                 <div className="flex items-center gap-2">
                   <Grid2X2 size={16} className="text-[#3B82F6]" />
@@ -689,7 +699,7 @@ export const DashboardScreen: React.FC = () => {
               </button>
             </div>
 
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
               {fixedScenarios.map((scenario) => (
                 <ScenarioCard
                   key={scenario.id}
@@ -885,6 +895,7 @@ const RecentNegotiationItem: React.FC<RecentNegotiationItemProps> = ({
 
   return (
     <div
+      style={{ zIndex: menuOpen ? 50 : 1 }}
       className={`group relative flex items-center justify-between rounded-[18px] p-4 transition-all hover:bg-white/80 ${glassInner}`}
     >
       <div className="flex min-w-0 flex-1 items-center gap-4 cursor-pointer" onClick={onView}>
@@ -908,8 +919,24 @@ const RecentNegotiationItem: React.FC<RecentNegotiationItemProps> = ({
         </div>
       </div>
 
-      <div className="flex shrink-0 items-center gap-3 pl-3">
+      <div className="flex shrink-0 items-center gap-2.5 pl-3">
         {statusBadge()}
+
+        {/* Dynamic Arrow-style Resume Control for Incomplete/Resumable Sessions */}
+        {(isPaused || isRunning || ['setup', 'ready', 'waiting_for_human'].includes(rawStatus)) && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onResume();
+            }}
+            className="flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50/90 px-2.5 py-1 text-[9.5px] font-bold text-blue-600 hover:bg-blue-100 transition-all cursor-pointer shadow-xs"
+            title="Resume negotiation"
+          >
+            Resume
+            <ArrowRight size={11} />
+          </button>
+        )}
 
         {/* 3-Dot Action Menu Button */}
         <div className="relative" ref={menuRef}>
@@ -926,7 +953,7 @@ const RecentNegotiationItem: React.FC<RecentNegotiationItemProps> = ({
           </button>
 
           {menuOpen && (
-            <div className="absolute right-0 top-9 z-30 w-44 rounded-xl border border-slate-200/80 bg-white/95 py-1.5 shadow-xl backdrop-blur-md animate-in fade-in zoom-in-95 duration-100 text-[11px] font-semibold text-slate-700">
+            <div className="absolute right-0 top-9 z-50 w-44 rounded-xl border border-slate-200 bg-white py-1.5 shadow-2xl ring-1 ring-black/5 animate-in fade-in zoom-in-95 duration-100 text-[11px] font-semibold text-slate-700">
               {/* RUNNING MENU */}
               {isRunning && (
                 <>

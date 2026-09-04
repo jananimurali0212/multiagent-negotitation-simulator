@@ -9,6 +9,9 @@ class AgentDecision(BaseModel):
     offer: Optional[Dict[str, Any]] = None
     concession_percentage: Optional[float] = 0.0
     confidence_score: Optional[float] = 1.0
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    token_usage: Optional[Dict[str, Any]] = None
 
 
 class UserTurnPayload(BaseModel):
@@ -26,5 +29,6 @@ class TurnResultResponse(BaseModel):
     validation_error: Optional[str] = None
     report_id: Optional[str] = None
     report_status: Optional[str] = None
+    token_usage: Optional[Dict[str, Any]] = None
 
     model_config = ConfigDict(from_attributes=True)
