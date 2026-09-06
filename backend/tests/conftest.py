@@ -16,6 +16,7 @@ import app.models.scenario
 import app.models.negotiation
 import app.models.agent
 import app.models.report
+import app.models.llm_usage
 from app.main import app as fastapi_app
 
 from sqlalchemy.pool import StaticPool

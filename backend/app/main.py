@@ -25,22 +25,23 @@ async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         # Ensure newly added columns exist in existing database tables
+        json_type = "JSON" if conn.dialect.name == "sqlite" else "JSONB" if conn.dialect.name == "postgresql" else "JSON"
         migration_statements = [
-            ("human_role", "VARCHAR(50)"),
-            ("current_turn_index", "INTEGER DEFAULT 0"),
-            ("current_speaker", "VARCHAR(100)"),
-            ("latest_offer", "JSON" if conn.dialect.name == "sqlite" else "JSONB" if conn.dialect.name == "postgresql" else "JSON"),
-            ("latest_offer_sender", "VARCHAR(100)"),
-            ("analysis", "JSON" if conn.dialect.name == "sqlite" else "JSONB" if conn.dialect.name == "postgresql" else "JSON"),
+            ("negotiation_sessions", "human_role", "VARCHAR(50)"),
+            ("negotiation_sessions", "current_turn_index", "INTEGER DEFAULT 0"),
+            ("negotiation_sessions", "current_speaker", "VARCHAR(100)"),
+            ("negotiation_sessions", "latest_offer", json_type),
+            ("negotiation_sessions", "latest_offer_sender", "VARCHAR(100)"),
+            ("outcome_reports", "analysis", f"{json_type} DEFAULT '{{}}'"),
         ]
-        for col_name, col_type in migration_statements:
+        for table_name, col_name, col_type in migration_statements:
             try:
                 if conn.dialect.name == "sqlite":
-                    await conn.execute(text(f"ALTER TABLE negotiation_sessions ADD COLUMN {col_name} {col_type}"))
+                    await conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {col_name} {col_type}"))
                 else:
-                    await conn.execute(text(f"ALTER TABLE negotiation_sessions ADD COLUMN IF NOT EXISTS {col_name} {col_type}"))
+                    await conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {col_name} {col_type}"))
             except Exception as e:
-                logger.debug(f"Migration note for {col_name}: {e}")
+                logger.debug(f"Migration note for {table_name}.{col_name}: {e}")
     
     # Seed preset scenarios
     async with AsyncSessionLocal() as session:
