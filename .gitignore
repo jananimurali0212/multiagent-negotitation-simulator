@@ -1,0 +1,40 @@
+# Word documents & docx
+*.docx
+*.doc
+word documents/
+
+# Environments & secrets
+.env
+.env.local
+.env.*.local
+*.env
+
+# Python / Backend
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+.pytest_cache/
+*.log
+*.sqlite
+*.db
+
+# Node / Frontend
+node_modules/
+dist/
+.output/
+
+# Binaries & Tunnels
+*.exe
+cloudflared.exe
+*.zip
+ngrok.zip
+ngrok_dist.zip
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
