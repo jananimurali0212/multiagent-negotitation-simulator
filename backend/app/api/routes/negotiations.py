@@ -333,6 +333,22 @@ async def confirm_review(
 from app.orchestration.runner import start_background_simulation, stop_background_simulation
 
 
+def _get_human_agent(session: NegotiationSession, agents: List[AgentConfiguration]) -> Optional[AgentConfiguration]:
+    if not agents:
+        return None
+    role_token = (getattr(session, "human_role", "") or "").lower().replace("-", " ").strip()
+    if role_token:
+        for ag in agents:
+            ag_role = (getattr(ag, "role", "") or "").lower().replace("-", " ").strip()
+            ag_name = (getattr(ag, "name", "") or "").lower().replace("-", " ").strip()
+            if role_token in ag_role or ag_role in role_token or role_token in ag_name or ag_name in role_token:
+                return ag
+    is_agent_1_human = any(k in role_token for k in ["vendor", "candidate", "project", "pm"])
+    if is_agent_1_human and len(agents) > 1:
+        return agents[1]
+    return agents[0]
+
+
 @router.get("", response_model=List[SessionResponse])
 async def list_user_sessions(
     current_user: User = Depends(get_current_user),
@@ -421,11 +437,7 @@ async def resume_negotiation(
         agents = list(session.agents or [])
         turn_count = len(session.messages or [])
         speaker_idx = turn_count % len(agents) if agents else 0
-        human_role_clean = (getattr(session, "human_role", "") or "").lower()
-        is_agent_1_human = any(k in human_role_clean for k in ["vendor", "candidate", "project", "pm"]) or (
-            len(agents) > 1 and human_role_clean == (agents[1].role or "").lower()
-        )
-        human_agent = agents[1] if (is_agent_1_human and len(agents) > 1) else (agents[0] if agents else None)
+        human_agent = _get_human_agent(session, agents)
         is_human_turn = session.mode == "human-ai" and human_agent and (agents[speaker_idx].id == human_agent.id)
 
         session.status = "waiting_for_human" if is_human_turn else "running"
@@ -485,11 +497,7 @@ async def start_negotiation(
     )
 
     agents = list(session.agents or [])
-    human_role_clean = (getattr(session, "human_role", "") or "").lower()
-    is_agent_1_human = any(k in human_role_clean for k in ["vendor", "candidate", "project", "pm"]) or (
-        len(agents) > 1 and human_role_clean == (agents[1].role or "").lower()
-    )
-    human_agent = agents[1] if (is_agent_1_human and len(agents) > 1) else (agents[0] if agents else None)
+    human_agent = _get_human_agent(session, agents)
 
     # In human-ai mode, if human is the opening speaker (agent 0), set status to waiting_for_human
     if session.mode == "human-ai" and human_agent and agents and agents[0].id == human_agent.id:

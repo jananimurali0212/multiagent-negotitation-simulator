@@ -55,14 +55,20 @@ class GeminiProvider(BaseLLMProvider):
                 is_transient=False,
             )
 
+        timeout_sec = float(getattr(settings, "LLM_TIMEOUT_SECONDS", 15) or 15)
         try:
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    temperature=0.7,
+            import asyncio
+            response = await asyncio.wait_for(
+                asyncio.to_thread(
+                    self.client.models.generate_content,
+                    model=self.model_name,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        temperature=0.7,
+                    ),
                 ),
+                timeout=timeout_sec,
             )
 
             if response and response.text:

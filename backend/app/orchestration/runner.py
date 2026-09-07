@@ -11,9 +11,17 @@ from app.orchestration.orchestrator import OrchestratorService
 
 logger = logging.getLogger("backend.simulation_runner")
 
+import time
+
 # Global registry of running background simulation tasks
 _active_runners: Dict[str, asyncio.Task] = {}
 _runner_locks: Dict[str, asyncio.Lock] = {}
+_last_api_step_time: Dict[str, float] = {}
+
+
+def record_api_step(session_id: str):
+    """Records that an API client (e.g. frontend) is actively stepping this session."""
+    _last_api_step_time[session_id] = time.time()
 
 
 def get_session_lock(session_id: str) -> asyncio.Lock:
@@ -29,7 +37,14 @@ async def run_simulation_loop(session_id: str, turn_delay_seconds: float = 2.5):
 
     try:
         while True:
-            # Pacing delay between turns (gives client/test time to start or manually step)
+            # If an API client (e.g. Web App UI) is actively stepping this session, yield control
+            # to avoid lock contention, slow response times, and duplicate turn execution.
+            last_step = _last_api_step_time.get(session_id, 0)
+            if time.time() - last_step < 5.0:
+                await asyncio.sleep(1.0)
+                continue
+
+            # Pacing delay between turns
             await asyncio.sleep(turn_delay_seconds)
 
             async with AsyncSessionLocal() as db:

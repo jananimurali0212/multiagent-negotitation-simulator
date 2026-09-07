@@ -3,8 +3,13 @@ import { supabase } from './supabase';
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
 async function getAuthHeaders(): Promise<Record<string, string>> {
-  const { data } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
+  let token = localStorage.getItem('auth_token') || localStorage.getItem('token');
+  if (!token) {
+    try {
+      const { data } = await supabase.auth.getSession();
+      token = data.session?.access_token || null;
+    } catch {}
+  }
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
@@ -13,6 +18,29 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
   }
   return headers;
 }
+
+export interface AuthResponse {
+  access_token: string;
+  token_type: string;
+  user: {
+    id: string;
+    email: string;
+    full_name?: string | null;
+  };
+}
+
+export const authApi = {
+  login: (credentials: { email: string; password: string }) =>
+    apiRequest<AuthResponse>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify(credentials),
+    }),
+  signup: (payload: { email: string; password: string; full_name?: string }) =>
+    apiRequest<AuthResponse>('/auth/signup', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+};
 
 export async function apiRequest<T>(
   endpoint: string,

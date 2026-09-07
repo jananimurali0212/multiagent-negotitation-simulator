@@ -353,10 +353,10 @@ export const SimulationArenaScreen: React.FC = () => {
       clearLoopTimer();
       timerRef.current = setTimeout(() => {
         executeNextStep();
-      }, 800);
+      }, 1200);
     }
     return () => clearLoopTimer();
-  }, [sessionId, isPaused, status]);
+  }, [sessionId, isPaused, status, isExecutingStep]);
 
   // Auto scroll feed to bottom
   useEffect(() => {

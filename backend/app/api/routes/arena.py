@@ -12,6 +12,8 @@ from app.api.dependencies import get_current_user
 from app.orchestration.orchestrator import OrchestratorService
 from app.api.routes.negotiations import _load_full_session
 
+from app.orchestration.runner import record_api_step, stop_background_simulation
+
 router = APIRouter(prefix="/negotiations", tags=["Negotiation Arena"])
 orchestrator = OrchestratorService()
 
@@ -23,6 +25,7 @@ async def execute_simulation_step(
     db: AsyncSession = Depends(get_db),
 ):
     """Executes the next AI turn in AI vs AI simulation mode."""
+    record_api_step(session_id)
     session = await _load_full_session(session_id, db)
     if session.user_id != current_user.id:
         raise ForbiddenError()
@@ -56,6 +59,7 @@ async def submit_human_turn(
     db: AsyncSession = Depends(get_db),
 ):
     """Submits a human offer/message in Human vs AI practice mode and executes the AI counter-response."""
+    record_api_step(session_id)
     session = await _load_full_session(session_id, db)
     if session.user_id != current_user.id:
         raise ForbiddenError()
@@ -83,9 +87,6 @@ async def submit_human_turn(
         user_offer=payload.offer,
     )
     return TurnResultResponse(**result)
-
-
-from app.orchestration.runner import stop_background_simulation
 
 
 @router.post("/{session_id}/stop", response_model=TurnResultResponse)

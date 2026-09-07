@@ -4,6 +4,7 @@ import { useStore } from '../store/useStore';
 import { Logo } from '../components/Logo';
 import { Eye, EyeOff, Mail, Lock, ShieldAlert, User, ArrowRight } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { authApi } from '../lib/api';
 
 export const LoginSignupScreen: React.FC = () => {
   const navigate = useNavigate();
@@ -108,7 +109,7 @@ export const LoginSignupScreen: React.FC = () => {
     if (msg.includes('auth_failure') || msg.includes('sign you in') || msg.includes('account/authentication failure')) {
       return "We couldn't sign you in. Please check your credentials and try again.";
     }
-    return 'Something went wrong. Please try again.';
+    return message || 'Something went wrong. Please try again.';
   };
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
@@ -124,18 +125,38 @@ export const LoginSignupScreen: React.FC = () => {
     setIsSubmitting(true);
     
     try {
-      const { data, error: authError } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password,
-      });
-
-      if (authError) {
-        setError(mapAuthError(authError.message, authError.status));
-        setIsSubmitting(false);
-        return;
+      let userEmail = email.trim();
+      let res;
+      try {
+        res = await authApi.login({ email: userEmail, password });
+      } catch (apiErr: any) {
+        if (apiErr.message && !apiErr.message.includes('Unable to connect')) {
+          setError(apiErr.message);
+          setIsSubmitting(false);
+          return;
+        }
+        const { data, error: authError } = await supabase.auth.signInWithPassword({
+          email: userEmail,
+          password,
+        });
+        if (authError) {
+          setError(mapAuthError(authError.message, authError.status));
+          setIsSubmitting(false);
+          return;
+        }
+        userEmail = data?.user?.email || userEmail;
       }
 
-      const userEmail = data?.user?.email || email.trim();
+      if (res) {
+        if (res.access_token) {
+          localStorage.setItem('auth_token', res.access_token);
+        }
+        if (res.user) {
+          localStorage.setItem('auth_user', JSON.stringify(res.user));
+          userEmail = res.user.email || userEmail;
+        }
+      }
+
       login(userEmail);
       navigate('/dashboard');
     } catch (err: any) {
@@ -163,30 +184,53 @@ export const LoginSignupScreen: React.FC = () => {
     setIsSubmitting(true);
 
     try {
-      const { data, error: authError } = await supabase.auth.signUp({
-        email: signupEmail.trim(),
-        password: signupPassword,
-        options: {
-          data: {
-            full_name: fullName.trim(),
+      let userEmail = signupEmail.trim();
+      let res;
+      try {
+        res = await authApi.signup({
+          email: userEmail,
+          password: signupPassword,
+          full_name: fullName.trim(),
+        });
+      } catch (apiErr: any) {
+        if (apiErr.message && !apiErr.message.includes('Unable to connect')) {
+          setError(apiErr.message);
+          setIsSubmitting(false);
+          return;
+        }
+        const { data, error: authError } = await supabase.auth.signUp({
+          email: userEmail,
+          password: signupPassword,
+          options: {
+            data: { full_name: fullName.trim() },
           },
-        },
-      });
-
-      if (authError) {
-        setError(mapAuthError(authError.message, authError.status));
-        setIsSubmitting(false);
-        return;
+        });
+        if (authError) {
+          setError(mapAuthError(authError.message, authError.status));
+          setIsSubmitting(false);
+          return;
+        }
+        if (data?.user && !data?.session) {
+          setError('Please verify your email address before signing in.');
+          switchTab('login');
+          setIsSubmitting(false);
+          return;
+        }
+        userEmail = data?.user?.email || userEmail;
       }
 
-      if (data?.user && !data?.session) {
-        setError('Please verify your email address before signing in.');
-        switchTab('login');
-      } else {
-        const userEmail = data?.user?.email || signupEmail.trim();
-        login(userEmail);
-        navigate('/dashboard');
+      if (res) {
+        if (res.access_token) {
+          localStorage.setItem('auth_token', res.access_token);
+        }
+        if (res.user) {
+          localStorage.setItem('auth_user', JSON.stringify(res.user));
+          userEmail = res.user.email || userEmail;
+        }
       }
+
+      login(userEmail);
+      navigate('/dashboard');
     } catch (err: any) {
       console.warn("Signup exception:", err);
       setError(mapAuthError(err.message || 'Unknown signup error'));

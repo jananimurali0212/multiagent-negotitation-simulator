@@ -18,7 +18,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         base_url: str,
         api_key: Optional[str] = None,
         model_name: Optional[str] = None,
-        default_model: str = "llama-3.3-70b-versatile",
+        default_model: str = "qwen/qwen3.6-27b",
     ):
         self._name = name
         self.base_url = base_url.rstrip("/")
@@ -195,8 +195,8 @@ class GroqProvider(OpenAICompatibleProvider):
             name="groq",
             base_url="https://api.groq.com/openai/v1",
             api_key=api_key or settings.GROQ_API_KEY,
-            model_name=model_name or settings.GROQ_MODEL or "llama-3.3-70b-versatile",
-            default_model="llama-3.3-70b-versatile",
+            model_name=model_name or settings.GROQ_MODEL or "qwen/qwen3.8-27b",
+            default_model="qwen/qwen3.8-27b",
         )
 
 

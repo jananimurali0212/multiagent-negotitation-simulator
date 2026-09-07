@@ -33,6 +33,7 @@ async def lifespan(app: FastAPI):
             ("negotiation_sessions", "latest_offer", json_type),
             ("negotiation_sessions", "latest_offer_sender", "VARCHAR(100)"),
             ("outcome_reports", "analysis", f"{json_type} DEFAULT '{{}}'"),
+            ("users", "password_hash", "VARCHAR(255)"),
         ]
         for table_name, col_name, col_type in migration_statements:
             try:

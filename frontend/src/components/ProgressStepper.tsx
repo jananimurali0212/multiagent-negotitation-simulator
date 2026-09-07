@@ -141,7 +141,7 @@ export const ProgressStepper: React.FC = () => {
   };
 
   return (
-    <div className="sticky top-[96px] lg:top-[104px] z-40 w-full mb-6 pointer-events-auto">
+    <div className="w-full mb-6 pointer-events-auto">
       <div className="bg-white/65 border border-white/70 shadow-[0_10px_35px_rgb(0,0,0,0.015)] backdrop-blur-lg rounded-[22px] px-6 md:px-10 py-5 md:py-6 flex items-center justify-between overflow-x-auto gap-4 select-none">
         {steps.map((step, idx) => {
           const isCompleted = idx < activeIndex;

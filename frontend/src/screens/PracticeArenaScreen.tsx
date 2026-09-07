@@ -49,6 +49,8 @@ export const PracticeArenaScreen: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(true);
+  const [isPaused, setIsPaused] = useState(false);
   const [currentRound, setCurrentRound] = useState(1);
   const [status, setStatus] = useState<'setup' | 'ready' | 'running' | 'waiting_for_human' | 'paused' | 'finished' | 'deadlock' | 'terminated'>('running');
   const [errorMessage, setErrorMessage] = useState('');
@@ -77,7 +79,7 @@ export const PracticeArenaScreen: React.FC = () => {
   const feedRef = useRef<HTMLDivElement>(null);
   const initLockRef = useRef(false);
 
-  const isHumanAgent0 = humanRole === 'buyer' || humanRole === 'recruiter' || humanRole === 'department-head';
+  const isHumanAgent0 = humanRole === 'buyer' || humanRole === 'recruiter' || humanRole === 'department-head' || humanRole === 'finance-director';
 
   const userDisplayName = user?.email ? user.email.split('@')[0] : 'You';
 
@@ -89,7 +91,7 @@ export const PracticeArenaScreen: React.FC = () => {
       return humanRole === 'recruiter' ? 'Candidate Agent' : 'Recruiter Agent';
     }
     if (selectedScenario?.id === 'budget-allocation') {
-      return humanRole === 'project-manager' ? 'Finance Manager Agent' : 'Project Manager Agent';
+      return humanRole === 'project-manager' ? 'Department Head Agent' : 'Project Manager Agent';
     }
     return 'Counterpart Agent';
   };
@@ -132,12 +134,25 @@ export const PracticeArenaScreen: React.FC = () => {
 
   // Initialize or restore session
   useEffect(() => {
-    if (!selectedScenario || initLockRef.current) return;
-    initLockRef.current = true;
+    if (!selectedScenario) return;
 
     let isMounted = true;
-    setIsSubmitting(true);
+    setIsInitializing(true);
+    setIsSubmitting(false);
     setErrorMessage('');
+
+    // Safety timeout: Never stay stuck on initializing indefinitely
+    const timeoutId = setTimeout(() => {
+      if (isMounted) {
+        setIsInitializing((prev) => {
+          if (prev) {
+            console.warn('[PRACTICE] Practice arena initialization timeout safety triggered');
+            setErrorMessage('Arena setup took longer than expected. You may start typing your proposal below.');
+          }
+          return false;
+        });
+      }
+    }, 12000);
 
     const initPractice = async () => {
       try {
@@ -148,8 +163,6 @@ export const PracticeArenaScreen: React.FC = () => {
             setSessionId(existingSession.id);
             setCurrentRound(existingSession.current_round || 1);
             const sessStatus = existingSession.status || 'running';
-            setStatus(sessStatus as any);
-            setActiveSessionStatus(sessStatus);
 
             const restoredMsgs: ChatMessage[] = (existingSession.messages || []).map((m: any) => ({
               id: m.id || `msg-${Math.random()}`,
@@ -162,19 +175,56 @@ export const PracticeArenaScreen: React.FC = () => {
               offerData: m.offer_data,
             }));
             setMessages(restoredMsgs);
-            setIsSubmitting(false);
 
-            if (sessStatus === 'ready' || sessStatus === 'setup_review') {
-              await apiRequest(`/negotiations/${existingSession.id}/start`, { method: 'POST' });
-              setStatus('running');
-              setActiveSessionStatus('running');
+            let currentStatus = sessStatus;
+            if (sessStatus === 'ready' || sessStatus === 'setup_review' || sessStatus === 'setup') {
+              const startRes = await apiRequest(`/negotiations/${existingSession.id}/start`, { method: 'POST' });
+              currentStatus = startRes?.status || 'running';
+            }
+
+            setStatus(currentStatus as any);
+            setActiveSessionStatus(currentStatus);
+
+            const aiSpeaksFirst = !isHumanAgent0;
+
+            if (currentStatus === 'running' && aiSpeaksFirst && (!restoredMsgs || restoredMsgs.length === 0)) {
+              try {
+                setIsSubmitting(true);
+                const stepRes = await negotiationApi.executeStep(existingSession.id);
+                if (isMounted) {
+                  if (stepRes.status) {
+                    setStatus(stepRes.status as any);
+                    setActiveSessionStatus(stepRes.status);
+                  }
+                  if (stepRes.message) {
+                    const aiMsg: ChatMessage = {
+                      id: stepRes.message.id || `msg-${Date.now()}`,
+                      sender: stepRes.message.sender || opponent.name,
+                      role: stepRes.message.role || opponent.role,
+                      content: stepRes.message.content,
+                      isUser: stepRes.message.is_user || false,
+                      round: stepRes.message.round || 1,
+                      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                      offerData: stepRes.message.offer_data,
+                    };
+                    setMessages([aiMsg]);
+                    setCurrentRound(stepRes.round || 1);
+                  }
+                }
+              } catch (e: any) {
+                console.warn('AI turn restore error:', e);
+                if (isMounted) setErrorMessage(e.message || 'Failed to fetch AI opening proposal.');
+              } finally {
+                if (isMounted) setIsSubmitting(false);
+              }
             }
             return;
           }
         }
 
         // Create single new session
-        console.log('[PRACTICE][CREATE] Creating single practice session for scenario:', selectedScenario.id);
+        console.log('[PRACTICE][CREATE] Creating practice session for scenario:', selectedScenario.id);
+        const aiSpeaksFirst = !isHumanAgent0;
         const agentsSource = configuredAgents && configuredAgents.length >= 2 ? configuredAgents : selectedScenario.defaultAgents || [];
         const agentsPayload = agentsSource.map((ag) => ({
           agent_template_id: ag.id || 'agent',
@@ -217,28 +267,41 @@ export const PracticeArenaScreen: React.FC = () => {
           method: 'POST',
           body: JSON.stringify({ confirm: true }),
         });
-        await apiRequest(`/negotiations/${res.id}/start`, { method: 'POST' });
-        setStatus('running');
-        setActiveSessionStatus('running');
+        const startRes = await apiRequest(`/negotiations/${res.id}/start`, { method: 'POST' });
+        const initStatus = (startRes && startRes.status) ? startRes.status : (aiSpeaksFirst ? 'running' : 'waiting_for_human');
+        setStatus(initStatus as any);
+        setActiveSessionStatus(initStatus);
 
-        const aiSpeaksFirst = !isHumanAgent0;
         if (aiSpeaksFirst) {
-          const stepRes = await negotiationApi.executeStep(res.id);
-          if (isMounted && stepRes.message) {
-            setMessages([
-              {
-                id: stepRes.message.id || `msg-${Date.now()}`,
-                sender: stepRes.message.sender || opponent.name,
-                role: stepRes.message.role || opponent.role,
-                content: stepRes.message.content,
-                isUser: stepRes.message.is_user || false,
-                round: stepRes.message.round || 1,
-                timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                offerData: stepRes.message.offer_data,
-              },
-            ]);
-            setCurrentRound(stepRes.round || 1);
-            setStatus(stepRes.status as any);
+          setIsSubmitting(true);
+          try {
+            const stepRes = await negotiationApi.executeStep(res.id);
+            if (isMounted) {
+              if (stepRes.status) {
+                setStatus(stepRes.status as any);
+                setActiveSessionStatus(stepRes.status);
+              }
+              if (stepRes.message) {
+                setMessages([
+                  {
+                    id: stepRes.message.id || `msg-${Date.now()}`,
+                    sender: stepRes.message.sender || opponent.name,
+                    role: stepRes.message.role || opponent.role,
+                    content: stepRes.message.content,
+                    isUser: stepRes.message.is_user || false,
+                    round: stepRes.message.round || 1,
+                    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                    offerData: stepRes.message.offer_data,
+                  },
+                ]);
+                setCurrentRound(stepRes.round || 1);
+              }
+            }
+          } catch (e: any) {
+            console.warn('AI turn step error:', e);
+            if (isMounted) setErrorMessage(e.message || 'Failed to generate AI opening turn.');
+          } finally {
+            if (isMounted) setIsSubmitting(false);
           }
         } else {
           // Human speaks first: session status is waiting_for_human
@@ -252,7 +315,10 @@ export const PracticeArenaScreen: React.FC = () => {
           setStatus('terminated');
         }
       } finally {
-        if (isMounted) setIsSubmitting(false);
+        clearTimeout(timeoutId);
+        if (isMounted) {
+          setIsInitializing(false);
+        }
       }
     };
 
@@ -260,6 +326,7 @@ export const PracticeArenaScreen: React.FC = () => {
 
     return () => {
       isMounted = false;
+      clearTimeout(timeoutId);
     };
   }, [selectedScenario]);
 
@@ -273,7 +340,7 @@ export const PracticeArenaScreen: React.FC = () => {
   // Handle user send turn
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputText.trim() || isSubmitting || status === 'finished' || status === 'terminated' || !sessionId) return;
+    if (!inputText.trim() || isSubmitting || isPaused || status === 'finished' || status === 'terminated' || !sessionId) return;
 
     const userMessageContent = inputText.trim();
     setInputText('');
@@ -289,6 +356,8 @@ export const PracticeArenaScreen: React.FC = () => {
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
 
+    // Optimistically add user's message immediately to the chat feed!
+    setMessages((prev) => [...prev, userMsg]);
     setIsSubmitting(true);
 
     try {
@@ -297,10 +366,11 @@ export const PracticeArenaScreen: React.FC = () => {
       if (turnRes.validation_error) {
         setErrorMessage(turnRes.validation_error);
         setInputText(userMessageContent); // Preserve user input for correction
+        // Remove optimistic user message on validation error
+        setMessages((prev) => prev.filter((m) => m.id !== userMsg.id));
         return;
       }
 
-      setMessages((prev) => [...prev, userMsg]);
       setCurrentRound(turnRes.round || currentRound);
       if (turnRes.status) {
         setStatus(turnRes.status as any);
@@ -334,6 +404,7 @@ export const PracticeArenaScreen: React.FC = () => {
       console.error('Submit turn error:', err);
       setErrorMessage(err.message || 'Failed to submit offer to AI opponent.');
       setInputText(userMessageContent); // Preserve user input on network error
+      setMessages((prev) => prev.filter((m) => m.id !== userMsg.id));
     } finally {
       setIsSubmitting(false);
     }
@@ -454,15 +525,15 @@ export const PracticeArenaScreen: React.FC = () => {
 
             <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
               <button
-                onClick={() => setIsSubmitting((prev) => !prev)}
+                onClick={() => setIsPaused((prev) => !prev)}
                 disabled={status === 'finished' || status === 'deadlock' || status === 'terminated'}
                 className={`px-4 py-2.5 rounded-full text-xs font-bold flex items-center gap-2 transition-all cursor-pointer border ${
-                  isSubmitting
+                  isPaused
                     ? 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600 shadow-sm'
                     : 'bg-white hover:bg-amber-50 text-amber-700 border-amber-200'
                 } disabled:opacity-50`}
               >
-                <span>{isSubmitting ? 'Resume Input' : 'Pause Input'}</span>
+                <span>{isPaused ? 'Resume Input' : 'Pause Input'}</span>
               </button>
 
               <button
@@ -532,7 +603,23 @@ export const PracticeArenaScreen: React.FC = () => {
               ref={feedRef}
               className="flex-1 overflow-y-auto p-6 space-y-6 bg-[radial-gradient(#f1f5f9_1px,transparent_1px)] [background-size:18px_18px]"
             >
-              {messages.map((msg) => {
+              {isInitializing ? (
+                <div className="h-full flex flex-col items-center justify-center text-center py-16 space-y-3">
+                  <div className="w-9 h-9 rounded-full border-2 border-blue-600 border-t-transparent animate-spin mx-auto" />
+                  <p className="text-xs text-slate-500 font-semibold">Preparing practice arena...</p>
+                </div>
+              ) : messages.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center text-center py-16 space-y-3">
+                  <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center animate-pulse shadow-sm">
+                    <Sparkles size={24} />
+                  </div>
+                  <h4 className="text-sm font-bold text-[#14234D]">Opening Turn: Your Proposal Needed</h4>
+                  <p className="text-xs text-slate-500 max-w-xs leading-relaxed">
+                    You are taking the opening turn as <span className="font-bold text-blue-600">{userAgent.role}</span>. Type your proposal in the input field below to start negotiating with <span className="font-bold text-orange-600">{opponent.name}</span>.
+                  </p>
+                </div>
+              ) : (
+                messages.map((msg) => {
                 const isUser = msg.isUser;
 
                 return (
@@ -593,7 +680,8 @@ export const PracticeArenaScreen: React.FC = () => {
                     )}
                   </div>
                 );
-              })}
+              })
+              )}
 
               {/* TYPING / LOADING ANIMATION FOR AI RESPONSE */}
               {isSubmitting && (

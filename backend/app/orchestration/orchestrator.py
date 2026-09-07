@@ -100,12 +100,17 @@ class OrchestratorService:
             # Determine human agent position in human-ai mode
             human_agent = None
             if session.mode == "human-ai":
-                human_role_clean = (getattr(session, "human_role", "") or "").lower()
-                # If human_role is vendor/candidate/project-manager, human is agent 1 (index 1), else agent 0 (index 0)
-                is_agent_1_human = any(k in human_role_clean for k in ["vendor", "candidate", "project", "pm"]) or (
-                    len(agents) > 1 and human_role_clean == (agents[1].role or "").lower()
-                )
-                human_agent = agents[1] if (is_agent_1_human and len(agents) > 1) else agents[0]
+                role_token = (getattr(session, "human_role", "") or "").lower().replace("-", " ").strip()
+                if role_token:
+                    for ag in agents:
+                        ag_role = (getattr(ag, "role", "") or "").lower().replace("-", " ").strip()
+                        ag_name = (getattr(ag, "name", "") or "").lower().replace("-", " ").strip()
+                        if role_token in ag_role or ag_role in role_token or role_token in ag_name or ag_name in role_token:
+                            human_agent = ag
+                            break
+                if not human_agent:
+                    is_agent_1_human = any(k in role_token for k in ["vendor", "candidate", "project", "pm"])
+                    human_agent = agents[1] if (is_agent_1_human and len(agents) > 1) else agents[0]
 
             # Deterministic current turn speaker calculation
             current_speaker_idx = turn_count % len(agents)

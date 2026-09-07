@@ -143,9 +143,24 @@ export const App: React.FC = () => {
     };
   }, []);
 
-  // Supabase Auth Session Initialization & Sync
+  // Auth Session Initialization & Sync (Backend + Supabase)
   useEffect(() => {
     let isMounted = true;
+
+    // First check local auth storage
+    const savedUserRaw = localStorage.getItem('auth_user');
+    const savedToken = localStorage.getItem('auth_token');
+    if (savedUserRaw && savedToken) {
+      try {
+        const savedUser = JSON.parse(savedUserRaw);
+        if (savedUser.email) {
+          login(savedUser.email);
+          setIsAuthInitializing(false);
+        }
+      } catch (e) {
+        console.warn('Failed to parse saved auth_user', e);
+      }
+    }
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (!isMounted) return;
@@ -161,7 +176,7 @@ export const App: React.FC = () => {
       if (!isMounted) return;
       if (session?.user) {
         login(session.user.email || '');
-      } else {
+      } else if (!localStorage.getItem('auth_token')) {
         logout();
       }
       setIsAuthInitializing(false);

@@ -960,50 +960,86 @@ export const useStore = create<AppStore>()(
         defaultName = index === 0 ? 'Department Head Agent' : index === 1 ? 'Project Manager Agent' : 'Finance Manager Agent';
       }
 
+      const personality = agent.personality || (index === 0 ? 'Collaborative' : index === 1 ? 'Aggressive' : 'Risk-Averse');
+      
+      const goals = agent.goals && agent.goals.length > 0 && agent.goals[0].text
+        ? agent.goals
+        : scenario.id === 'vendor-pricing'
+        ? index === 0
+          ? [
+              { id: 'g1', text: 'Secure licensing fee below $45/user/month', priority: 'High' },
+              { id: 'g2', text: 'Obtain Gold support package at no extra cost', priority: 'Medium' },
+              { id: 'g3', text: 'Secure Net-45 payment terms', priority: 'Low' }
+            ]
+          : [
+              { id: 'g1', text: 'Close contract at $65/user/month minimum', priority: 'High' },
+              { id: 'g2', text: 'Commit customer to a 3-year term duration', priority: 'High' },
+              { id: 'g3', text: 'Include mandatory premium deployment fee', priority: 'Medium' }
+            ]
+        : scenario.id === 'job-offer'
+        ? index === 0
+          ? [
+              { id: 'g1', text: 'Keep base salary under $160,000', priority: 'High' },
+              { id: 'g2', text: 'Limit stock options to 10,000 units', priority: 'Medium' },
+              { id: 'g3', text: 'Establish minimum 3 days in office weekly', priority: 'High' }
+            ]
+          : [
+              { id: 'g1', text: 'Obtain base salary of $175,000 or above', priority: 'High' },
+              { id: 'g2', text: 'Secure 12,000 stock options units', priority: 'Medium' },
+              { id: 'g3', text: 'Get full remote work arrangement', priority: 'High' }
+            ]
+        : [
+            { id: 'g1', text: 'Achieve primary project allocation target', priority: 'High' }
+          ];
+
+      const constraints = agent.constraints && agent.constraints.length > 0 && agent.constraints[0].value
+        ? agent.constraints
+        : scenario.id === 'vendor-pricing'
+        ? index === 0
+          ? [
+              { id: 'c1', label: 'Maximum budget cap', value: '$120,000 / year' },
+              { id: 'c2', label: 'Go-live timeline', value: 'Within 30 days' }
+            ]
+          : [
+              { id: 'c1', label: 'Minimum user count', value: '150 seats minimum' },
+              { id: 'c2', label: 'Standard pricing sheet', value: '$80/user list price' }
+            ]
+        : scenario.id === 'job-offer'
+        ? index === 0
+          ? [
+              { id: 'c1', label: 'Internal grade cap', value: '$170,000 absolute limit' },
+              { id: 'c2', label: 'Option signing pool', value: '15,000 shares max' }
+            ]
+          : [
+              { id: 'c1', label: 'Current salary offer', value: '$155,000 competing offer' },
+              { id: 'c2', label: 'Relocation cost', value: 'Self-funded' }
+            ]
+        : [
+            { id: 'c1', label: 'Total Pool Ceiling', value: '$500,000 absolute cap' }
+          ];
+
       return {
         ...agent,
         name: defaultName,
         role: fixedRole,
-        personality: undefined, // starts unselected
-        goals: agent.goals ? agent.goals.map((g: any) => ({ ...g, text: '' })) : [{ id: 'g1', text: '', priority: 'High' }],
-        constraints: agent.constraints ? agent.constraints.map((c: any) => ({ ...c, value: '' })) : [{ id: 'c1', label: '', value: '' }],
-      // Clear scenario-specific negotiation fields
-      targetPrice: '',
-      paymentTerms: '',
-      targetSalary: '',
-      remotePreference: '',
-      targetAllocation: '',
-      minAllocation: '',
-      minPrice: '',
-      quantityVolume: '',
-      qualityRequirement: '',
-      deliveryRequirement: '',
-      warrantySupport: '',
-      maxBudget: '',
-      otherConstraints: '',
-      minSalary: '',
-      equityExpectation: '',
-      benefits: '',
-      workArrangement: '',
-      locationPreference: '',
-      joiningTimeline: '',
-      roleExpectations: '',
-      otherPriorities: '',
-      maxSalary: '',
-      equityBoundary: '',
-      benefitsPackage: '',
-      roleScope: '',
-      hiringTimeline: '',
-      otherHiringConstraints: '',
-      maxAllocation: '',
-      departmentPriority: '',
-      budgetJustification: '',
-      timeline: '',
-      priorityAreas: '',
-      businessRequirements: '',
-      customInstructions: '',
-    };
-  });
+        personality,
+        goals,
+        constraints,
+        targetPrice: agent.targetPrice || (scenario.id === 'vendor-pricing' ? (index === 0 ? '$45/user/month' : '$65/user/month') : ''),
+        minPrice: agent.minPrice || (scenario.id === 'vendor-pricing' ? (index === 0 ? '' : '$55/user/month') : ''),
+        maxBudget: agent.maxBudget || (scenario.id === 'vendor-pricing' ? (index === 0 ? '$120,000 / year' : '') : ''),
+        paymentTerms: agent.paymentTerms || (scenario.id === 'vendor-pricing' ? (index === 0 ? 'Net-45' : 'Net-30') : ''),
+        warrantySupport: agent.warrantySupport || (scenario.id === 'vendor-pricing' ? (index === 0 ? 'Gold Support' : 'Gold Support Package') : ''),
+        targetSalary: agent.targetSalary || (scenario.id === 'job-offer' ? (index === 0 ? '$155,000' : '$175,000') : ''),
+        maxSalary: agent.maxSalary || (scenario.id === 'job-offer' ? (index === 0 ? '$170,000' : '') : ''),
+        minSalary: agent.minSalary || (scenario.id === 'job-offer' ? (index === 0 ? '' : '$165,000') : ''),
+        equityExpectation: agent.equityExpectation || (scenario.id === 'job-offer' ? (index === 0 ? '10,000 shares' : '20,000 shares') : ''),
+        remotePreference: agent.remotePreference || (scenario.id === 'job-offer' ? (index === 0 ? '3 days in office' : '4 days remote') : ''),
+        targetAllocation: agent.targetAllocation || (scenario.id === 'budget-allocation' ? (index === 0 ? '$180,000' : index === 1 ? '$250,000' : '$500,000') : ''),
+        minAllocation: agent.minAllocation || (scenario.id === 'budget-allocation' ? (index === 0 ? '$130,000' : index === 1 ? '$200,000' : '') : ''),
+        maxAllocation: agent.maxAllocation || (scenario.id === 'budget-allocation' ? (index === 2 ? '$500,000' : '') : ''),
+      };
+    });
 
   set({
       selectedScenario: scenario,
