@@ -33,6 +33,9 @@ cloudflared.exe
 ngrok.zip
 ngrok_dist.zip
 
+# Debug packages & dumps
+*debug_package*
+
 # IDE & OS
 .vscode/
 .idea/
