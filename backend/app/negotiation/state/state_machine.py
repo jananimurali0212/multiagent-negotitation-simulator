@@ -8,9 +8,10 @@ class StateMachine:
     """Enforces legal negotiation state status transitions."""
 
     VALID_TRANSITIONS: Dict[str, Set[str]] = {
-        "setup": {"setup", "ready", "running", "terminated"},
-        "ready": {"setup", "ready", "running", "finished", "deadlock", "terminated"},
-        "running": {"running", "finished", "deadlock", "terminated"},
+        "setup": {"setup", "ready", "running", "waiting_for_human", "terminated"},
+        "ready": {"setup", "ready", "running", "waiting_for_human", "finished", "deadlock", "terminated"},
+        "running": {"running", "waiting_for_human", "finished", "deadlock", "terminated"},
+        "waiting_for_human": {"waiting_for_human", "running", "finished", "deadlock", "terminated"},
         "finished": {"finished"},
         "deadlock": {"deadlock"},
         "terminated": {"terminated"},

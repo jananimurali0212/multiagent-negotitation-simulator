@@ -26,8 +26,10 @@ class NegotiationState(TypedDict):
     current_offer: Optional[Dict[str, Any]]
     agreement_reached: bool
     deadlock_detected: bool
+    deadlock_reason: Optional[str]
     status: str
     latest_decision: Optional[Dict[str, Any]]
+    scenario_data: Optional[Dict[str, Any]]
 
 
 class LangGraphNegotiationEngine:
@@ -55,6 +57,7 @@ class LangGraphNegotiationEngine:
             scenario_id=state["scenario_id"],
             current_round=state["current_round"],
             session_id=state.get("session_id"),
+            scenario_data=state.get("scenario_data"),
         )
 
         # Generate LLM decision
@@ -122,7 +125,7 @@ class LangGraphNegotiationEngine:
             parsed_agents.append(AgentConfigSchema(**agent_data))
         zopa_info = ZOPAService.calculate_zopa(state["scenario_id"], parsed_agents)
 
-        is_terminal, final_terms, outcome_status = DecisionEngine.evaluate_agreement(
+        is_terminal, final_terms, outcome_status, deadlock_reason = DecisionEngine.evaluate_agreement(
             scenario_id=state["scenario_id"],
             latest_decision=latest_decision,
             previous_messages=state["messages"],
@@ -137,7 +140,8 @@ class LangGraphNegotiationEngine:
             return {
                 "status": status,
                 "agreement_reached": (outcome_status == "Agreement Reached"),
-                "deadlock_detected": (outcome_status == "Deadlock"),
+                "deadlock_detected": (outcome_status in ["Deadlock", "Unresolved / Terminated"]),
+                "deadlock_reason": deadlock_reason,
                 "current_offer": final_terms,
             }
 

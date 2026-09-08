@@ -146,24 +146,24 @@ PRESET_SCENARIOS_DATA = [
         ],
         "default_agents_data": [
             {
-                "agent_template_id": "finance-mgr",
-                "name": "David Vance",
-                "role": "VP of Finance",
-                "avatar": "DV",
-                "personality": "Risk-Averse",
-                "experience": "High",
+                "agent_template_id": "dept-head",
+                "name": "Liam Connor",
+                "role": "CMO / Marketing Lead",
+                "avatar": "LC",
+                "personality": "Collaborative",
+                "experience": "Low",
                 "negotiation_parameters": {
-                    "maxAllocation": "$500,000 total pool",
-                    "targetAllocation": "Balanced 40/40/20 distribution"
+                    "targetAllocation": "$180,000",
+                    "minAllocation": "$130,000"
                 },
                 "goals": [
-                    {"text": "Keep total budget allocation strictly under $500k", "priority": "High"},
-                    {"text": "Maintain 15% emergency reserve buffer", "priority": "High"},
-                    {"text": "Ensure ROI metrics attached to all allocations", "priority": "Medium"}
+                    {"text": "Fund Q3 global user acquisition campaign ($180k)", "priority": "High"},
+                    {"text": "Co-sponsor engineering feature release launch", "priority": "Medium"},
+                    {"text": "Establish flexible milestone-based funding", "priority": "Low"}
                 ],
                 "constraints": [
-                    {"label": "Total Pool Ceiling", "value": "$500,000 absolute cap"},
-                    {"label": "Audit requirement", "value": "Detailed quarterly reporting"}
+                    {"label": "Campaign commit floor", "value": "$130,000 minimum"},
+                    {"label": "Agency contract", "value": "Non-cancelable retainers"}
                 ]
             },
             {
@@ -188,24 +188,24 @@ PRESET_SCENARIOS_DATA = [
                 ]
             },
             {
-                "agent_template_id": "dept-head",
-                "name": "Liam Connor",
-                "role": "CMO / Marketing Lead",
-                "avatar": "LC",
-                "personality": "Collaborative",
-                "experience": "Low",
+                "agent_template_id": "finance-mgr",
+                "name": "David Vance",
+                "role": "VP of Finance",
+                "avatar": "DV",
+                "personality": "Risk-Averse",
+                "experience": "High",
                 "negotiation_parameters": {
-                    "targetAllocation": "$180,000",
-                    "minAllocation": "$130,000"
+                    "maxAllocation": "$500,000 total pool",
+                    "targetAllocation": "Balanced 40/40/20 distribution"
                 },
                 "goals": [
-                    {"text": "Fund Q3 global user acquisition campaign ($180k)", "priority": "High"},
-                    {"text": "Co-sponsor engineering feature release launch", "priority": "Medium"},
-                    {"text": "Establish flexible milestone-based funding", "priority": "Low"}
+                    {"text": "Keep total budget allocation strictly under $500k", "priority": "High"},
+                    {"text": "Maintain 15% emergency reserve buffer", "priority": "High"},
+                    {"text": "Ensure ROI metrics attached to all allocations", "priority": "Medium"}
                 ],
                 "constraints": [
-                    {"label": "Campaign commit floor", "value": "$130,000 minimum"},
-                    {"label": "Agency contract", "value": "Non-cancelable retainers"}
+                    {"label": "Total Pool Ceiling", "value": "$500,000 absolute cap"},
+                    {"label": "Audit requirement", "value": "Detailed quarterly reporting"}
                 ]
             }
         ]
@@ -214,7 +214,7 @@ PRESET_SCENARIOS_DATA = [
 
 
 async def seed_scenarios(db: AsyncSession) -> None:
-    """Seed the 3 pre-built enterprise scenarios into the database if not present."""
+    """Seed the 3 pre-built enterprise scenarios into the database if not present or update template data."""
     for data in PRESET_SCENARIOS_DATA:
         result = await db.execute(select(Scenario).where(Scenario.id == data["id"]))
         existing = result.scalar_one_or_none()
@@ -232,4 +232,6 @@ async def seed_scenarios(db: AsyncSession) -> None:
             )
             db.add(scenario)
             logger.info(f"Seeded scenario: {data['id']}")
+        else:
+            existing.default_agents_data = data["default_agents_data"]
     await db.commit()

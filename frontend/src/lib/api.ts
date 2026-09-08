@@ -90,10 +90,11 @@ export interface NegotiationSetupPayload {
   scenario_id: string;
   mode: 'ai-ai' | 'human-ai';
   human_role?: string;
+  scenario_data?: Record<string, any>;
   agents?: AgentDefaultData[];
 }
 
-export type NegotiationStatus = 'running' | 'finished' | 'deadlock' | 'terminated';
+export type NegotiationStatus = 'setup' | 'ready' | 'running' | 'waiting_for_human' | 'finished' | 'deadlock' | 'terminated';
 
 export interface NegotiationMessageResponse {
   id: string;
@@ -101,6 +102,7 @@ export interface NegotiationMessageResponse {
   role: string;
   avatar?: string;
   content: string;
+  rationale_summary?: string;
   round: number;
   turn_index: number;
   is_user: boolean;
@@ -112,33 +114,58 @@ export interface NegotiationStepResponse {
   status: NegotiationStatus;
   round: number;
   current_turn_speaker?: string;
+  is_human_turn?: boolean;
   message?: NegotiationMessageResponse | null;
   agreement_reached: boolean;
   final_terms?: Record<string, any>;
   validation_error?: string;
+  deadlock_reason?: string;
 }
 
 export type TurnResultResponse = NegotiationStepResponse;
 
 export const negotiationApi = {
   createSession: (payload: NegotiationSetupPayload) =>
-    apiRequest<{ id: string; status: string; current_round: number }>('/negotiations', {
+    apiRequest<{ id: string; status: string; current_round: number; scenario_data?: Record<string, any> }>('/negotiations', {
       method: 'POST',
       body: JSON.stringify(payload),
+    }),
+  startSession: (sessionId: string) =>
+    apiRequest<any>(`/negotiations/${sessionId}/start`, {
+      method: 'POST',
     }),
   executeStep: (sessionId: string) =>
     apiRequest<NegotiationStepResponse>(`/negotiations/${sessionId}/step`, {
       method: 'POST',
     }),
-  submitUserTurn: (sessionId: string, userMessage: string, userOffer?: Record<string, any>) =>
+  submitUserTurn: (
+    sessionId: string,
+    userMessage: string,
+    userOffer?: Record<string, any>,
+    turnIndex?: number,
+    requestId?: string
+  ) =>
     apiRequest<NegotiationStepResponse>(`/negotiations/${sessionId}/user-turn`, {
       method: 'POST',
-      body: JSON.stringify({ message: userMessage, offer: userOffer || {} }),
+      body: JSON.stringify({
+        message: userMessage,
+        offer: userOffer || {},
+        turn_index: turnIndex,
+        request_id: requestId,
+      }),
+    }),
+  completeNegotiation: (sessionId: string) =>
+    apiRequest<NegotiationStepResponse>(`/negotiations/${sessionId}/complete`, {
+      method: 'POST',
+    }),
+  endNegotiation: (sessionId: string) =>
+    apiRequest<NegotiationStepResponse>(`/negotiations/${sessionId}/complete`, {
+      method: 'POST',
     }),
   getSession: (sessionId: string) =>
     apiRequest<any>(`/negotiations/${sessionId}`),
-  listSessions: () =>
-    apiRequest<any[]>('/negotiations'),
+  getNegotiationReport: (sessionId: string) =>
+    apiRequest<OutcomeReport>(`/negotiations/${sessionId}/report`),
 };
 
 // Dashboard API
@@ -173,6 +200,27 @@ export const dashboardApi = {
 };
 
 // Outcome Reports API
+export interface ReportParticipant {
+  name: string;
+  role: string;
+  avatar: string;
+  personality: string;
+  experience: string;
+  is_human: boolean;
+}
+
+export interface ReportKeyEvent {
+  round: number;
+  turn_index: number;
+  speaker: string;
+  role: string;
+  event_type: string;
+  summary: string;
+  terms: Record<string, any>;
+  concessions: string[];
+  timestamp: string;
+}
+
 export interface OutcomeReport {
   id: string;
   session_id: string;
@@ -182,7 +230,18 @@ export interface OutcomeReport {
   outcome: string;
   rounds_completed: number;
   final_terms: Record<string, any>;
+  initial_data?: Record<string, any>;
+  participants?: ReportParticipant[];
+  key_events?: ReportKeyEvent[];
+  unresolved_terms?: Record<string, any>;
+  agent_analysis?: Record<string, { role: string; strategy: string; messages_sent: number; offers_tabled: number }>;
+  overall_score?: number;
+  duration_seconds?: number;
   metrics: {
+    concessionControl?: number;
+    argumentStrength?: number;
+    activeListening?: number;
+    dealProgress?: number;
     agreementRate?: number;
     avgRounds?: number;
     utilityScore?: number;
@@ -191,6 +250,8 @@ export interface OutcomeReport {
   };
   summary: string;
   recommendations: string;
+  scenario_analysis?: Record<string, any>;
+  final_assessment?: string;
   created_at: string;
 }
 

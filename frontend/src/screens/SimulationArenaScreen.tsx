@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/useStore';
-import { negotiationApi, apiRequest, TurnResultResponse } from '../lib/api';
+import { negotiationApi, apiRequest, TurnResultResponse, NegotiationStatus } from '../lib/api';
 import {
   Activity,
   Play,
@@ -16,6 +16,8 @@ import {
   X,
   Compass,
   FileText,
+  ChevronDown,
+  ShieldCheck,
 } from 'lucide-react';
 
 interface SimulationMessage {
@@ -25,6 +27,7 @@ interface SimulationMessage {
   avatar?: string;
   content: string;
   offerData?: Record<string, any>;
+  rationaleSummary?: string;
   round: number;
   timestamp: string;
   isAgent0: boolean;
@@ -32,16 +35,17 @@ interface SimulationMessage {
 
 export const SimulationArenaScreen: React.FC = () => {
   const navigate = useNavigate();
-  const { selectedScenario, configuredAgents, setSelectedReportId } = useStore();
+  const { selectedScenario, configuredAgents, setSelectedReportId, scenarioData } = useStore();
 
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<SimulationMessage[]>([]);
   const [currentRound, setCurrentRound] = useState(1);
-  const [status, setStatus] = useState<'setup' | 'running' | 'finished' | 'deadlock' | 'terminated'>('running');
+  const [status, setStatus] = useState<NegotiationStatus>('running');
   const [isPaused, setIsPaused] = useState(false);
   const [isExecutingStep, setIsExecutingStep] = useState(false);
   const [currentSpeakerName, setCurrentSpeakerName] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string>('');
+  const [deadlockReason, setDeadlockReason] = useState<string>('');
   const [isStopModalOpen, setIsStopModalOpen] = useState(false);
 
   const feedRef = useRef<HTMLDivElement>(null);
@@ -113,6 +117,48 @@ export const SimulationArenaScreen: React.FC = () => {
     setIsStopModalOpen(false);
 
     try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const existingSessionId = urlParams.get('session_id') || sessionStorage.getItem(`simulation_session_${selectedScenario.id}`);
+
+      if (existingSessionId) {
+        try {
+          const sessionData = await negotiationApi.getSession(existingSessionId);
+          if (sessionData && sessionData.scenario_id === selectedScenario.id && mountedRef.current) {
+            setSessionId(sessionData.id);
+            setCurrentRound(sessionData.current_round || 1);
+            setStatus(sessionData.status as any);
+            if (sessionData.deadlock_reason) {
+              setDeadlockReason(sessionData.deadlock_reason);
+            }
+            setCurrentSpeakerName(sessionData.current_turn_speaker || agent0.name);
+            if (sessionData.messages && sessionData.messages.length > 0) {
+              setMessages(
+                sessionData.messages.map((m: any) => ({
+                  id: m.id || `msg-${Date.now()}-${Math.random()}`,
+                  sender: m.sender || agent0.name,
+                  role: m.role || agent0.role,
+                  avatar: (m.role === agent0.role || m.sender === agent0.name) ? agent0.avatar : agent1.avatar,
+                  content: m.content || '',
+                  offerData: m.offer_data,
+                  rationaleSummary: m.rationale_summary,
+                  round: m.round || 1,
+                  timestamp: m.timestamp
+                    ? new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                    : new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                  isAgent0: (m.sender || '').toLowerCase().includes((agent0.name || '').toLowerCase()),
+                }))
+              );
+            }
+            if (sessionData.status === 'running') {
+              timerRef.current = setTimeout(() => executeNextStep(), 1500);
+            }
+            return;
+          }
+        } catch (e) {
+          console.warn('Could not restore existing simulation session:', e);
+        }
+      }
+
       // Build agents payload from configuredAgents (user-filled details)
       const agentsSource = configuredAgents && configuredAgents.length >= 2 ? configuredAgents : selectedScenario.defaultAgents || [];
       const agentsPayload = agentsSource.map((ag) => ({
@@ -145,17 +191,13 @@ export const SimulationArenaScreen: React.FC = () => {
         scenario_id: selectedScenario.id,
         mode: 'ai-ai',
         agents: agentsPayload,
+        scenario_data: scenarioData,
       });
       console.log('[AI-AI][CREATE_SUCCESS] Session ID created:', res.id);
       setSessionId(res.id);
+      sessionStorage.setItem(`simulation_session_${selectedScenario.id}`, res.id);
       setCurrentRound(res.current_round || 1);
       setCurrentSpeakerName(agent0.name);
-
-      console.log('[AI-AI][CONFIRM_REVIEW] Confirming setup review for session:', res.id);
-      await apiRequest(`/negotiations/${res.id}/confirm-review`, {
-        method: 'POST',
-        body: JSON.stringify({ confirm: true }),
-      });
 
       console.log('[AI-AI][START] Starting negotiation session:', res.id);
       await apiRequest(`/negotiations/${res.id}/start`, { method: 'POST' });
@@ -197,48 +239,50 @@ export const SimulationArenaScreen: React.FC = () => {
       if (stepRes.status) {
         setStatus(stepRes.status);
       }
+      if (stepRes.deadlock_reason) {
+        setDeadlockReason(stepRes.deadlock_reason);
+      }
 
       if (stepRes.current_turn_speaker) {
         setCurrentSpeakerName(stepRes.current_turn_speaker);
       }
 
       if (stepRes.message) {
-        const senderName = (stepRes.message.sender || 'Agent').trim();
-        const normSender = senderName.toLowerCase();
-        const normAgent0 = (agent0.name || '').trim().toLowerCase();
-        const normAgent1 = (agent1.name || '').trim().toLowerCase();
+        const rawSender = (stepRes.message.sender || '').trim();
+        const rawRole = (stepRes.message.role || '').trim();
+        const normSender = rawSender.toLowerCase();
+        const normRole = rawRole.toLowerCase();
+        const normAgent0Name = (agent0.name || '').trim().toLowerCase();
+        const normAgent1Name = (agent1.name || '').trim().toLowerCase();
+        const normAgent0Role = (agent0.role || '').trim().toLowerCase();
+        const normAgent1Role = (agent1.role || '').trim().toLowerCase();
 
         let isAgent0 = true;
-        const rawRole = (stepRes.message.role || '').toLowerCase();
-        const rawSender = (stepRes.message.sender || '').toLowerCase();
-        const agent0Role = (agent0.role || '').toLowerCase();
-        const agent0Name = (agent0.name || '').toLowerCase();
-
-        if (rawRole && agent0Role && (rawRole.includes(agent0Role) || agent0Role.includes(rawRole))) {
+        if (normSender && normAgent0Name && normSender.includes(normAgent0Name)) {
           isAgent0 = true;
-        } else if (rawSender && agent0Name && rawSender.includes(agent0Name)) {
-          isAgent0 = true;
-        } else if (rawRole.includes('recruiter') || rawRole.includes('procurement') || rawRole.includes('finance') || rawRole.includes('buyer')) {
-          isAgent0 = true;
-        } else if (rawRole.includes('candidate') || rawRole.includes('vendor') || rawRole.includes('seller') || rawRole.includes('engineering') || rawRole.includes('marketing')) {
+        } else if (normSender && normAgent1Name && normSender.includes(normAgent1Name)) {
           isAgent0 = false;
-        } else if (normSender === normAgent0) {
+        } else if (normRole && normAgent0Role && (normRole.includes(normAgent0Role) || normAgent0Role.includes(normRole))) {
           isAgent0 = true;
-        } else if (normSender === normAgent1) {
+        } else if (normRole && normAgent1Role && (normRole.includes(normAgent1Role) || normAgent1Role.includes(normRole))) {
           isAgent0 = false;
         } else {
           isAgent0 = (stepRes.message.turn_index % 2 === 0);
         }
 
-        const normalizedSenderName = isAgent0 ? 'Recruiter Agent' : 'Candidate Agent';
+        const activeAgentObj = isAgent0 ? agent0 : agent1;
+        const displayName = rawSender && rawSender !== 'Agent' ? rawSender : activeAgentObj.name;
+        const displayRole = rawRole && rawRole !== 'Participant' ? rawRole : activeAgentObj.role;
+        const displayAvatar = stepRes.message.avatar || activeAgentObj.avatar || (isAgent0 ? 'A0' : 'A1');
 
         const newMsg: SimulationMessage = {
           id: stepRes.message.id || `msg-${Date.now()}`,
-          sender: normalizedSenderName,
-          role: stepRes.message.role || (isAgent0 ? 'Recruiter' : 'Candidate'),
-          avatar: isAgent0 ? 'RA' : 'CA',
+          sender: displayName,
+          role: displayRole,
+          avatar: displayAvatar,
           content: stepRes.message.content,
           offerData: stepRes.message.offer_data || stepRes.final_terms,
+          rationaleSummary: stepRes.message.rationale_summary,
           round: stepRes.message.round,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }),
           isAgent0: isAgent0,
@@ -319,14 +363,14 @@ export const SimulationArenaScreen: React.FC = () => {
     } else if (action === 'view_report') {
       if (sessionId) {
         try {
-          await apiRequest(`/negotiations/${sessionId}/stop`, { method: 'POST' });
+          await negotiationApi.completeNegotiation(sessionId);
           setSelectedReportId(sessionId);
         } catch (e) {
           console.warn('Stop simulation error:', e);
         }
       }
       setStatus('terminated');
-      navigate('/reports');
+      navigate(sessionId ? `/reports?session_id=${sessionId}` : '/reports');
     }
   };
 
@@ -469,25 +513,69 @@ export const SimulationArenaScreen: React.FC = () => {
         )}
 
         {status === 'deadlock' && (
-          <div className="p-6 rounded-[22px] border border-amber-200 bg-amber-50/80 backdrop-blur-xl shadow-lg flex flex-col md:flex-row md:items-center justify-between gap-4 animate-in fade-in duration-300">
-            <div>
-              <h3 className="text-sm font-bold text-amber-800 flex items-center gap-2">
-                <AlertCircle size={18} />
-                Deadlock Reached
-              </h3>
-              <p className="text-xs text-amber-700 mt-1">
-                The negotiation ended in a deadlock without agreement. Analytical diagnostic report is ready.
-              </p>
+          <div className="p-6 rounded-[24px] border-2 border-red-300 bg-red-50/95 backdrop-blur-xl shadow-xl space-y-4 animate-in fade-in duration-300">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-red-200">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-red-600 text-white flex items-center justify-center font-black shadow-md">
+                  <AlertCircle size={22} />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-red-900 tracking-wide uppercase">
+                    NEGOTIATION DEADLOCK
+                  </h3>
+                  <p className="text-xs text-red-700 font-medium">
+                    Impasse declared: Negotiation halted because mutually acceptable terms cannot be reconciled.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={async () => {
+                  if (sessionId) {
+                    try {
+                      await negotiationApi.completeNegotiation(sessionId);
+                      setSelectedReportId(sessionId);
+                    } catch (e) {
+                      console.warn('Error completing session:', e);
+                    }
+                  }
+                  navigate(sessionId ? `/reports?session_id=${sessionId}` : '/reports');
+                }}
+                className="px-6 py-2.5 rounded-full bg-red-600 hover:bg-red-700 text-white text-xs font-extrabold shadow-md transition-all hover:-translate-y-0.5 cursor-pointer border-none"
+              >
+                Complete Negotiation & View Report
+              </button>
             </div>
-            <button
-              onClick={() => {
-                if (sessionId) setSelectedReportId(sessionId);
-                navigate('/reports');
-              }}
-              className="shrink-0 px-5 py-2.5 rounded-full bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-md transition-all hover:-translate-y-0.5 cursor-pointer border-none"
-            >
-              View Full Report
-            </button>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs bg-white/90 p-4 rounded-2xl border border-red-200 shadow-xs">
+              <div>
+                <span className="font-extrabold text-red-900 block mb-1">Deadlock Reason:</span>
+                <p className="text-red-800 bg-red-100/70 p-2.5 rounded-xl font-semibold leading-relaxed">
+                  {deadlockReason || 'Zone of Possible Agreement (ZOPA) is empty; reservation boundaries are mutually exclusive.'}
+                </p>
+              </div>
+              <div>
+                <span className="font-extrabold text-slate-900 block mb-1">Unresolved Terms:</span>
+                <p className="text-slate-700 bg-slate-100 p-2.5 rounded-xl font-medium leading-relaxed">
+                  Contract terms and valuation thresholds conflict across mandatory participant limits.
+                </p>
+              </div>
+              <div>
+                <span className="font-extrabold text-slate-900 block mb-1">Last Proposal:</span>
+                <p className="text-slate-700 bg-slate-100 p-2.5 rounded-xl font-medium leading-relaxed truncate">
+                  {messages.length > 0 && messages[messages.length - 1]?.sender
+                    ? `${messages[messages.length - 1].sender} (Round ${messages[messages.length - 1].round}): "${messages[messages.length - 1].content}"`
+                    : 'No proposals recorded'}
+                </p>
+              </div>
+              <div>
+                <span className="font-extrabold text-slate-900 block mb-1">Other Party's Position:</span>
+                <p className="text-slate-700 bg-slate-100 p-2.5 rounded-xl font-medium leading-relaxed truncate">
+                  {messages.length > 1 && messages[messages.length - 2]?.sender
+                    ? `${messages[messages.length - 2].sender} (Round ${messages[messages.length - 2].round}): "${messages[messages.length - 2].content}"`
+                    : 'Uncompromising baseline reservation threshold'}
+                </p>
+              </div>
+            </div>
           </div>
         )}
 
@@ -577,10 +665,13 @@ export const SimulationArenaScreen: React.FC = () => {
 
                         {/* Chat Bubble */}
                         <div className={`space-y-1.5 max-w-[80%] md:max-w-[70%]`}>
-                          {/* Header above bubble - displaying Agent Role Title (Recruiter Agent / Candidate Agent) */}
+                          {/* Header above bubble - displaying Agent Name and Role */}
                           <div className={`flex items-center gap-2 px-1 ${isLeft ? 'justify-start' : 'justify-end'}`}>
-                            <span className="font-bold text-[11px] text-[#14234D]">{roleDisplayName}</span>
-                            <span className="text-[9px] font-semibold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md">
+                            <span className="font-bold text-[11px] text-[#14234D]">{msg.sender}</span>
+                            <span className="text-[9px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
+                              {msg.role}
+                            </span>
+                            <span className="text-[9px] font-semibold text-slate-400 bg-slate-100/60 px-1.5 py-0.5 rounded-md">
                               Round {msg.round} • {msg.timestamp}
                             </span>
                           </div>
@@ -610,6 +701,22 @@ export const SimulationArenaScreen: React.FC = () => {
                                     {k}: <span className="font-extrabold">{String(v)}</span>
                                   </span>
                                 ))}
+                              </div>
+                            )}
+
+                            {/* Strategic Rationale Accordion */}
+                            {msg.rationaleSummary && (
+                              <div className="mt-2.5 pt-2 border-t border-slate-200/50">
+                                <details className="group text-[11px]">
+                                  <summary className="flex items-center gap-1.5 text-slate-500 hover:text-slate-700 font-semibold cursor-pointer list-none select-none">
+                                    <Sparkles size={12} className="text-amber-500 group-open:rotate-12 transition-transform" />
+                                    <span>Strategic Rationale</span>
+                                    <ChevronDown size={11} className="group-open:rotate-180 transition-transform ml-auto" />
+                                  </summary>
+                                  <div className="mt-1.5 p-2 rounded-xl bg-white/80 border border-slate-200/70 text-slate-700 leading-relaxed font-normal shadow-2xs">
+                                    {msg.rationaleSummary}
+                                  </div>
+                                </details>
                               </div>
                             )}
                           </div>

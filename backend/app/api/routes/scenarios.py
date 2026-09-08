@@ -13,7 +13,6 @@ router = APIRouter(prefix="/scenarios", tags=["Scenarios"])
 
 
 @router.get("", response_model=List[ScenarioResponse])
-@router.get("/", response_model=List[ScenarioResponse])
 async def list_scenarios(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Scenario))
     scenarios = result.scalars().all()

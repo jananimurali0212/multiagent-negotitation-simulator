@@ -39,17 +39,19 @@ class ZOPAService:
             if vendor_min is None or buyer_max_budget is None:
                 return default_zopa
 
-            buyer_max_monthly = buyer_max_budget / (150 * 12) if buyer_max_budget > 1000 else buyer_max_budget
+            raw_budget_str = ConstraintRules._extract_param_raw_str(buyer, ["maxbudget", "max_budget", "budget cap", "maximum budget"])
+            if (raw_budget_str and any(y in raw_budget_str.lower() for y in ["/ year", "/yr", "per year", "annual", "/year"])) or (buyer_max_budget > 1000 and vendor_min < 500):
+                buyer_max_budget = round(buyer_max_budget / (150 * 12), 2)
 
-            if vendor_min <= buyer_max_monthly:
-                width = round(buyer_max_monthly - vendor_min, 2)
+            if vendor_min <= buyer_max_budget:
+                width = round(buyer_max_budget - vendor_min, 2)
                 return {
                     "zopa_exists": True,
-                    "overlap_interval": [round(vendor_min, 2), round(buyer_max_monthly, 2)],
+                    "overlap_interval": [round(vendor_min, 2), round(buyer_max_budget, 2)],
                     "overlap_width": width,
                     "status": "positive_zopa" if width > 0 else "zero_width",
                     "lower_bound": round(vendor_min, 2),
-                    "upper_bound": round(buyer_max_monthly, 2),
+                    "upper_bound": round(buyer_max_budget, 2),
                 }
             else:
                 return {
@@ -58,7 +60,7 @@ class ZOPAService:
                     "overlap_width": 0.0,
                     "status": "no_zopa",
                     "lower_bound": round(vendor_min, 2),
-                    "upper_bound": round(buyer_max_monthly, 2),
+                    "upper_bound": round(buyer_max_budget, 2),
                 }
 
         # 2. Job Salary Scenario
@@ -98,7 +100,8 @@ class ZOPAService:
         # 3. Budget Allocation Scenario
         elif scenario_id == "budget-allocation":
             finance = cls._find_agent(agents, ["finance", "cfo"])
-            total_pool = ConstraintRules._extract_param_value(finance, ["maxallocation", "max_allocation", "total pool", "ceiling"]) if finance else 500000.0
+            extracted_pool = ConstraintRules._extract_param_value(finance, ["maxallocation", "max_allocation", "total pool", "ceiling", "total_budget"]) if finance else None
+            total_pool = extracted_pool if extracted_pool is not None else 500000.0
 
             sum_min_floors = 0.0
             for a in agents:
@@ -147,6 +150,15 @@ class ZOPAService:
                 if any(w in role_clean for w in ["sales", "vendor", "seller"])
                 else ConstraintRules._extract_param_value(agent, ["maxbudget", "max_budget"])
             )
+            raw_str = (
+                ConstraintRules._extract_param_raw_str(agent, ["minprice", "min_price"])
+                if any(w in role_clean for w in ["sales", "vendor", "seller"])
+                else ConstraintRules._extract_param_raw_str(agent, ["maxbudget", "max_budget"])
+            )
+
+            if limit_val is not None and not any(w in role_clean for w in ["sales", "vendor", "seller"]):
+                if (raw_str and any(y in raw_str.lower() for y in ["/ year", "/yr", "per year", "annual", "/year"])) or (limit_val > 1000 and curr_price < 500):
+                    limit_val = round(limit_val / (150 * 12), 2)
 
             dist_target = round(abs(curr_price - target_price), 2) if target_price is not None else None
             dist_limit = round(abs(curr_price - limit_val), 2) if limit_val is not None else None
@@ -156,8 +168,7 @@ class ZOPAService:
                 if any(w in role_clean for w in ["sales", "vendor", "seller"]):
                     is_inside = curr_price >= limit_val
                 else:
-                    monthly_cap = limit_val / (150 * 12) if limit_val > 1000 else limit_val
-                    is_inside = curr_price <= monthly_cap
+                    is_inside = curr_price <= limit_val
 
             return {
                 "distance_to_target": dist_target,

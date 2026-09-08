@@ -135,6 +135,27 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             clean_text = clean_text.strip()
 
             data = json.loads(clean_text)
+
+            usage = res_json.get("usage")
+            if usage:
+                try:
+                    from app.negotiation.telemetry import NegotiationTelemetry
+                    NegotiationTelemetry.emit(
+                        event_type="token_usage",
+                        session_id="llm_execution",
+                        agent_name=agent_role,
+                        current_round=current_round,
+                        payload={
+                            "provider": self.provider_name(),
+                            "model": self.model_id,
+                            "prompt_tokens": usage.get("prompt_tokens", 0),
+                            "completion_tokens": usage.get("completion_tokens", 0),
+                            "total_tokens": usage.get("total_tokens", 0),
+                        },
+                    )
+                except Exception as telem_err:
+                    logger.debug(f"Telemetry emit skipped: {telem_err}")
+
             return AgentDecision(
                 action=data.get("action", "counteroffer"),
                 message=data.get("message", "I present our revised proposal."),

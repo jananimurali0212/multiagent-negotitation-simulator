@@ -450,12 +450,10 @@ export const DashboardScreen: React.FC = () => {
           <div className={`min-h-[170px] rounded-[23px] p-5 ${glassPrimary}`}>
             <div className="flex h-full items-center justify-between gap-2 overflow-x-auto">
               {[
-                { number: '01', line1: 'Choose', line2: 'Scenario', active: true },
-                { number: '02', line1: 'Configure', line2: 'Agents', active: false },
-                { number: '03', line1: 'Set Goals &', line2: 'Constraints', active: false },
-                { number: '04', line1: 'Review &', line2: 'Confirm', active: false },
-                { number: '05', line1: 'Start', line2: 'Negotiation', active: false },
-                { number: '06', line1: 'Analyze', line2: 'Outcome', active: false },
+                { number: '01', line1: 'Select', line2: 'Scenario & Mode', active: true },
+                { number: '02', line1: 'Enter Real', line2: 'Scenario Data', active: false },
+                { number: '03', line1: 'Negotiation', line2: 'Chat Arena', active: false },
+                { number: '04', line1: 'Automatic', line2: 'Outcome Report', active: false },
               ].map((step, index) => (
                 <React.Fragment key={step.number}>
                   <div className="flex min-w-[88px] flex-1 flex-col items-center text-center">
@@ -471,7 +469,7 @@ export const DashboardScreen: React.FC = () => {
                       {step.line1}<br />{step.line2}
                     </p>
                   </div>
-                  {index < 5 && <div className="mt-[25px] min-w-[25px] flex-1 border-t border-dashed border-[#CBD5E1]" />}
+                  {index < 3 && <div className="mt-[25px] min-w-[25px] flex-1 border-t border-dashed border-[#CBD5E1]" />}
                 </React.Fragment>
               ))}
             </div>

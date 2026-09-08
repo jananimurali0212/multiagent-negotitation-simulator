@@ -24,8 +24,17 @@ class OutcomeReport(Base):
     outcome: Mapped[str] = mapped_column(String(100), nullable=False)  # 'Agreement Reached', 'Deadlock', 'Stopped by User', 'Unresolved / Terminated'
     rounds_completed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     final_terms: Mapped[dict] = mapped_column(JSON, default=dict, nullable=True)
+    initial_data: Mapped[dict] = mapped_column(JSON, default=dict, nullable=True)
+    participants: Mapped[list] = mapped_column(JSON, default=list, nullable=True)
+    key_events: Mapped[list] = mapped_column(JSON, default=list, nullable=True)
+    unresolved_terms: Mapped[dict] = mapped_column(JSON, default=dict, nullable=True)
+    agent_analysis: Mapped[dict] = mapped_column(JSON, default=dict, nullable=True)
+    overall_score: Mapped[int] = mapped_column(Integer, nullable=False, default=85)
+    duration_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     metrics: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)  # concessionControl, argumentStrength, activeListening, dealProgress
+    scenario_analysis: Mapped[dict] = mapped_column(JSON, default=dict, nullable=True)
     summary: Mapped[str] = mapped_column(Text, nullable=False)
+    final_assessment: Mapped[str] = mapped_column(Text, nullable=True, default="")
     recommendations: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False

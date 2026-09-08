@@ -12,8 +12,17 @@ class ReportResponse(BaseModel):
     outcome: str
     rounds_completed: int
     final_terms: Optional[Dict[str, Any]] = None
+    initial_data: Optional[Dict[str, Any]] = None
+    participants: Optional[List[Dict[str, Any]]] = None
+    key_events: Optional[List[Dict[str, Any]]] = None
+    unresolved_terms: Optional[Dict[str, Any]] = None
+    agent_analysis: Optional[Dict[str, Any]] = None
+    overall_score: int = 85
+    duration_seconds: int = 0
     metrics: Dict[str, Any]
+    scenario_analysis: Optional[Dict[str, Any]] = None
     summary: str
+    final_assessment: Optional[str] = None
     recommendations: str
     created_at: datetime
 

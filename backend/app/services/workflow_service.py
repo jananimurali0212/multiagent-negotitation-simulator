@@ -73,11 +73,11 @@ class WorkflowService:
             if not agent.constraints or len(agent.constraints) == 0:
                 raise WorkflowValidationError(f"Agent '{agent.name}' must have at least one defined constraint.", missing_step="GOALS")
 
-        # Step 05: Review confirmation check
-        if not session.review_confirmed:
+        # Step 05: Real scenario data check
+        if not session.scenario_data and not session.review_confirmed:
             raise WorkflowValidationError(
-                "Negotiation review step has not been explicitly confirmed by the user.",
-                missing_step="REVIEW",
+                "Scenario data must be provided before starting negotiation.",
+                missing_step="SCENARIO_DATA",
             )
 
         return True, "Negotiation setup is fully valid and ready to start."
@@ -89,11 +89,7 @@ class WorkflowService:
             return "SCENARIO"
         if not session.mode or session.mode not in ALLOWED_MODES:
             return "MODE"
-        if not session.agents or len(session.agents) < 2:
-            return "AGENTS"
-        for agent in session.agents:
-            if not agent.goals or len(agent.goals) == 0 or not agent.constraints or len(agent.constraints) == 0:
-                return "GOALS"
-        if not session.review_confirmed:
-            return "REVIEW"
+        if not session.scenario_data and not session.review_confirmed:
+            return "SCENARIO_DATA"
         return "NEGOTIATION"
+

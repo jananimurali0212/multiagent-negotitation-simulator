@@ -21,7 +21,6 @@ class DecisionEngine:
         Evaluates whether an agreement or terminal state has been reached using Phase 3 rules.
         Returns (is_terminal, final_terms, outcome_status_string).
         """
-        # Case 1: Agent explicitly accepted
         if latest_decision.action == "accept":
             final_terms = latest_decision.offer or {}
             if not final_terms and previous_messages:
@@ -30,7 +29,7 @@ class DecisionEngine:
                     if msg_offer:
                         final_terms = msg_offer
                         break
-            return True, final_terms, "Agreement Reached"
+            return True, final_terms, "Agreement Reached", None
 
         # Case 2 & 3 & 4: Evaluate Deadlock via DeadlockRules
         is_deadlock, reason = DeadlockRules.evaluate_deadlock(
@@ -45,6 +44,6 @@ class DecisionEngine:
         if is_deadlock:
             logger.info(f"Deadlock condition triggered: {reason}")
             outcome = "Unresolved / Terminated" if safety_ceiling_reached else "Deadlock"
-            return True, latest_decision.offer if safety_ceiling_reached else None, outcome
+            return True, latest_decision.offer if safety_ceiling_reached else None, outcome, reason
 
-        return False, None, "running"
+        return False, None, "running", None

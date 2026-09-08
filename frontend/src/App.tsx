@@ -12,12 +12,10 @@ import { ResetPasswordScreen } from './screens/ResetPasswordScreen';
 import { DashboardScreen } from './screens/DashboardScreen';
 import { ScenarioSelectionScreen } from './screens/ScenarioSelectionScreen';
 import { ModeSelectionScreen } from './screens/ModeSelectionScreen';
-import { AgentConfigurationScreen } from './screens/AgentConfigurationScreen';
-import { GoalsConstraintsScreen } from './screens/GoalsConstraintsScreen';
-import { ReviewConfirmScreen } from './screens/ReviewConfirmScreen';
 import { SimulationArenaScreen } from './screens/SimulationArenaScreen';
 import { PracticeArenaScreen } from './screens/PracticeArenaScreen';
 import { OutcomeReportScreen } from './screens/OutcomeReportScreen';
+import { ScenarioDataFormScreen } from './screens/ScenarioDataFormScreen';
 import { SettingsScreen } from './screens/SettingsScreen';
 import { HelpSupportScreen } from './screens/HelpSupportScreen';
 
@@ -45,78 +43,28 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode; path: string; isAuth
     return <AccessDeniedScreen />;
   }
 
-  // Workflow route guards to prevent bypassing setup screens
+  // Workflow route guards to enforce streamlined 4-stage pipeline
   if (path.startsWith('/setup/mode')) {
     if (!selectedScenario) {
       return <Navigate to="/setup/scenario" replace />;
     }
   }
 
-  if (path.startsWith('/setup/agents')) {
+  if (path.startsWith('/setup/scenario-data')) {
     if (!selectedScenario) {
       return <Navigate to="/setup/scenario" replace />;
     }
     if (!selectedMode) {
       return <Navigate to="/setup/mode" replace />;
-    }
-  }
-
-  if (path.startsWith('/setup/goals')) {
-    if (!selectedScenario) {
-      return <Navigate to="/setup/scenario" replace />;
-    }
-    if (!selectedMode) {
-      return <Navigate to="/setup/mode" replace />;
-    }
-    if (selectedMode === 'human-ai' && !humanRole) {
-      return <Navigate to="/setup/agents" replace />;
-    }
-
-    const expectedCount = selectedScenario?.defaultAgents?.length || 2;
-    const activeAgents = configuredAgents.slice(0, expectedCount);
-    const isAgentsConfigured =
-      activeAgents.length >= expectedCount &&
-      activeAgents.every((agent, i) => {
-        const isHuman =
-          selectedMode === 'human-ai' &&
-          ((humanRole === 'buyer' && i === 0) ||
-            (humanRole === 'vendor' && i === 1) ||
-            (humanRole === 'recruiter' && i === 0) ||
-            (humanRole === 'candidate' && i === 1) ||
-            (humanRole === 'department-head' && i === 0) ||
-            (humanRole === 'project-manager' && i === 1) ||
-            (humanRole === 'finance-director' && i === 2));
-        if (selectedMode === 'human-ai' && isHuman) return true;
-        if (!agent.name?.trim() || !agent.role?.trim()) return false;
-        if (!agent.personality) return false;
-        return true;
-      });
-    if (!isAgentsConfigured) {
-      return <Navigate to="/setup/agents" replace />;
-    }
-  }
-
-  if (path.startsWith('/setup/review')) {
-    if (!selectedScenario) {
-      return <Navigate to="/setup/scenario" replace />;
-    }
-    if (!selectedMode) {
-      return <Navigate to="/setup/mode" replace />;
-    }
-    if (selectedMode === 'human-ai' && !humanRole) {
-      return <Navigate to="/setup/agents" replace />;
-    }
-
-    const expectedCount = selectedScenario?.defaultAgents?.length || 2;
-    const activeAgents = configuredAgents.slice(0, expectedCount);
-    if (activeAgents.length < expectedCount) {
-      return <Navigate to="/setup/goals" replace />;
     }
   }
 
   if (path.startsWith('/arena/')) {
-    if (!selectedScenario || !selectedMode) {
+    if (!selectedScenario) {
       return <Navigate to="/setup/scenario" replace />;
+    }
+    if (!selectedMode) {
+      return <Navigate to="/setup/mode" replace />;
     }
   }
 
@@ -212,29 +160,14 @@ export const App: React.FC = () => {
           }
         />
         <Route
-          path="/setup/agents"
+          path="/setup/scenario-data"
           element={
-            <ProtectedRoute path="/setup/agents" isAuthInitializing={isAuthInitializing}>
-              <AgentConfigurationScreen />
+            <ProtectedRoute path="/setup/scenario-data" isAuthInitializing={isAuthInitializing}>
+              <ScenarioDataFormScreen />
             </ProtectedRoute>
           }
         />
-        <Route
-          path="/setup/goals"
-          element={
-            <ProtectedRoute path="/setup/goals" isAuthInitializing={isAuthInitializing}>
-              <GoalsConstraintsScreen />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/setup/review"
-          element={
-            <ProtectedRoute path="/setup/review" isAuthInitializing={isAuthInitializing}>
-              <ReviewConfirmScreen />
-            </ProtectedRoute>
-          }
-        />
+
         <Route
           path="/arena/simulation"
           element={

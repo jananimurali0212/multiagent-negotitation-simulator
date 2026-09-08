@@ -1,6 +1,6 @@
 from typing import List
 from fastapi import APIRouter, Depends
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -14,7 +14,6 @@ router = APIRouter(prefix="/reports", tags=["Reports"])
 
 
 @router.get("", response_model=List[ReportResponse])
-@router.get("/", response_model=List[ReportResponse])
 async def list_reports(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -32,35 +31,62 @@ async def get_report_by_id(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Retrieves a single outcome report by report ID."""
-    stmt = select(OutcomeReport).where(OutcomeReport.id == report_id)
+    """Retrieves a single outcome report by report ID or session ID."""
+    stmt = select(OutcomeReport).where(
+        or_(OutcomeReport.id == report_id, OutcomeReport.session_id == report_id)
+    )
     result = await db.execute(stmt)
     report = result.scalar_one_or_none()
 
     if not report:
-        raise ResourceNotFoundError("OutcomeReport", report_id)
+        # Check if report_id matches a valid NegotiationSession and generate on demand
+        from app.models.negotiation import NegotiationSession
+        from app.reports.report_generator import ReportGenerator
+        from app.api.routes.negotiations import _load_full_session
+
+        session_stmt = select(NegotiationSession).where(NegotiationSession.id == report_id)
+        sess_result = await db.execute(session_stmt)
+        session = sess_result.scalar_one_or_none()
+
+        if session and session.user_id == current_user.id:
+            outcome = (
+                "Agreement Reached"
+                if session.agreement_reached
+                else ("Deadlock" if session.status == "deadlock" else "No Agreement / Deadlock")
+            )
+            full_session = await _load_full_session(session.id, db)
+            report = await ReportGenerator.generate_and_save_report(full_session, outcome, db)
+        else:
+            raise ResourceNotFoundError("OutcomeReport", report_id)
 
     if report.user_id != current_user.id:
         raise ForbiddenError("You do not have permission to access this negotiation report.")
 
-    return report
+    # Dynamically normalize any currency mismatch from historical sessions
+    from app.reports.report_generator import ReportGenerator
+    sc_curr = ReportGenerator._detect_currency(report.initial_data or {}, default="")
+    if sc_curr and sc_curr != "$":
+        modified = False
+        if report.scenario_analysis:
+            sanitized_analysis = dict(report.scenario_analysis)
+            for k in ["final_salary", "initial_salary", "expected_salary", "minimum_acceptable_salary", "final_price", "price_concessions", "salary_concessions"]:
+                if k in sanitized_analysis and isinstance(sanitized_analysis[k], str) and "$" in sanitized_analysis[k]:
+                    sanitized_analysis[k] = sanitized_analysis[k].replace("$", sc_curr)
+                    modified = True
+            if modified:
+                report.scenario_analysis = sanitized_analysis
 
+        if report.final_terms:
+            sanitized_terms = dict(report.final_terms)
+            for k in ["salary", "price"]:
+                if k in sanitized_terms and isinstance(sanitized_terms[k], str) and "$" in sanitized_terms[k]:
+                    sanitized_terms[k] = sanitized_terms[k].replace("$", sc_curr)
+                    modified = True
+            if modified:
+                report.final_terms = sanitized_terms
 
-@router.get("/session/{session_id}", response_model=ReportResponse)
-async def get_report_by_session_id(
-    session_id: str,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Retrieves an outcome report by negotiation session ID."""
-    stmt = select(OutcomeReport).where(OutcomeReport.session_id == session_id)
-    result = await db.execute(stmt)
-    report = result.scalar_one_or_none()
-
-    if not report:
-        raise ResourceNotFoundError("OutcomeReport for session", session_id)
-
-    if report.user_id != current_user.id:
-        raise ForbiddenError()
+        if modified:
+            await db.commit()
+            await db.refresh(report)
 
     return report

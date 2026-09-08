@@ -24,12 +24,10 @@ export const ProgressStepper: React.FC = () => {
   } = store;
 
   const steps: Step[] = [
-    { label: 'Choose Scenario', desc: 'Select negotiation context', paths: ['/setup/scenario', '/setup/mode'] },
-    { label: 'Configure Agents', desc: 'Set roles & personalities', paths: ['/setup/agents'] },
-    { label: 'Goals & Constraints', desc: 'Define objectives & limits', paths: ['/setup/goals'] },
-    { label: 'Review & Confirm', desc: 'Review all setup details', paths: ['/setup/review'] },
-    { label: 'Negotiation', desc: 'Choose mode & begin', paths: ['/arena/simulation', '/arena/practice'] },
-    { label: 'Outcome', desc: 'Analyze & learn', paths: ['/reports'] }
+    { label: 'Scenario & Mode', desc: 'Select scenario & mode', paths: ['/setup/scenario', '/setup/mode'] },
+    { label: 'Real Scenario Data', desc: 'Enter authentic scenario data', paths: ['/setup/scenario-data'] },
+    { label: 'Negotiation Chat', desc: 'Live multi-agent negotiation', paths: ['/arena/simulation', '/arena/practice', '/arena'] },
+    { label: 'Outcome Report', desc: 'Analysis & metrics report', paths: ['/reports'] },
   ];
 
   // Determine current active step index
@@ -45,11 +43,9 @@ export const ProgressStepper: React.FC = () => {
   const getRouteForStepIdx = (idx: number): string => {
     switch (idx) {
       case 0: return '/setup/scenario';
-      case 1: return '/setup/agents';
-      case 2: return '/setup/goals';
-      case 3: return '/setup/review';
-      case 4: return '/arena';
-      case 5: return '/reports';
+      case 1: return '/setup/scenario-data';
+      case 2: return selectedMode === 'human-ai' ? '/arena/practice' : '/arena/simulation';
+      case 3: return '/reports';
       default: return '/setup/scenario';
     }
   };
@@ -58,38 +54,24 @@ export const ProgressStepper: React.FC = () => {
     switch (firstIncompleteId) {
       case 'SCENARIO':
         return {
-          title: 'Complete the setup first',
-          message: 'You need to select a negotiation scenario before continuing.',
+          title: 'Select Scenario First',
+          message: 'Please choose a negotiation scenario before continuing.',
           actionText: 'Choose Scenario',
           actionRoute: '/setup/scenario'
         };
       case 'MODE':
         return {
-          title: 'Choose a negotiation mode',
-          message: 'Select AI vs AI or Human vs AI before configuring agents.',
+          title: 'Choose Mode',
+          message: 'Select AI vs AI Simulation or Human vs AI Practice.',
           actionText: 'Choose Mode',
           actionRoute: '/setup/mode'
         };
-      case 'AGENTS':
+      case 'SCENARIO_DATA':
         return {
-          title: 'Configure your agents first',
-          message: 'Complete all required agent configuration details before continuing to the negotiation.',
-          actionText: 'Configure Agents',
-          actionRoute: '/setup/agents'
-        };
-      case 'GOALS':
-        return {
-          title: 'Complete goals and constraints',
-          message: 'Define the required negotiation goals and constraints before continuing.',
-          actionText: 'Set Goals & Constraints',
-          actionRoute: '/setup/goals'
-        };
-      case 'REVIEW':
-        return {
-          title: 'Review your negotiation setup',
-          message: 'Review and confirm the configured scenario, agents, goals, and constraints before starting.',
-          actionText: 'Review & Confirm',
-          actionRoute: '/setup/review'
+          title: 'Enter Real Scenario Data',
+          message: 'Please enter the authentic parameters for this negotiation session.',
+          actionText: 'Enter Scenario Data',
+          actionRoute: '/setup/scenario-data'
         };
       default:
         return {

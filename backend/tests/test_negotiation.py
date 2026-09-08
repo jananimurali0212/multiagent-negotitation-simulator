@@ -4,21 +4,25 @@ from httpx import AsyncClient
 
 @pytest.mark.asyncio
 async def test_full_negotiation_simulation_lifecycle(client: AsyncClient, auth_headers: dict):
-    # 1. Create Session
+    # 1. Create Session with real user scenario data
     create_res = await client.post(
         "/api/v1/negotiations",
-        json={"scenario_id": "vendor-pricing", "mode": "ai-ai"},
+        json={
+            "scenario_id": "vendor-pricing",
+            "mode": "ai-ai",
+            "scenario_data": {
+                "product": "Enterprise Cloud CRM Suite",
+                "quantity": "250 seats",
+                "target_price": "$50/user/month",
+                "maximum_budget": "$65/user/month",
+            },
+        },
         headers=auth_headers,
     )
     assert create_res.status_code == 201
     session_id = create_res.json()["id"]
 
-    # 2. Confirm Review & Start
-    await client.post(
-        f"/api/v1/negotiations/{session_id}/confirm-review",
-        json={"confirm": True},
-        headers=auth_headers,
-    )
+    # 2. Start negotiation directly
     start_res = await client.post(
         f"/api/v1/negotiations/{session_id}/start",
         headers=auth_headers,
@@ -41,9 +45,9 @@ async def test_full_negotiation_simulation_lifecycle(client: AsyncClient, auth_h
 
     assert completed is True
 
-    # 4. Verify outcome report generated and persistent
+    # 4. Verify outcome report generated and persistent via canonical endpoint
     report_res = await client.get(
-        f"/api/v1/reports/session/{session_id}",
+        f"/api/v1/negotiations/{session_id}/report",
         headers=auth_headers,
     )
     assert report_res.status_code == 200
@@ -51,3 +55,4 @@ async def test_full_negotiation_simulation_lifecycle(client: AsyncClient, auth_h
     assert report_data["session_id"] == session_id
     assert "metrics" in report_data
     assert "concessionControl" in report_data["metrics"]
+

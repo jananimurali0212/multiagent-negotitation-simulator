@@ -1,3 +1,0 @@
-Error: failed to connect session: This ngrok session is not authenticated. ngrok requires an account and a valid credential to start a session.
-Sign up for an account: https://dashboard.ngrok.com/signup
-Get your credential: https://dashboard.ngrok.com/get-started/your-authtoken error_code: ERR_NGROK_4018

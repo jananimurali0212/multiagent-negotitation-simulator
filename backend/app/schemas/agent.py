@@ -32,11 +32,3 @@ class AgentConfigSchema(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-
-class AgentUpdatePayload(BaseModel):
-    name: Optional[str] = None
-    personality: Optional[str] = None  # Aggressive, Collaborative, Risk-Averse
-    experience: Optional[str] = None  # Low, Medium, High
-    negotiation_parameters: Optional[dict] = None
-    goals: Optional[List[GoalSchema]] = None
-    constraints: Optional[List[ConstraintSchema]] = None

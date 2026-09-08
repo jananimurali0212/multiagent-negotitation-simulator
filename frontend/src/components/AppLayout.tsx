@@ -15,6 +15,7 @@ import {
   Activity,
   BarChart3,
   ChevronDown,
+  FileText,
   X
 } from 'lucide-react';
 
@@ -69,8 +70,8 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
 
   // Stage flags for visual navbar journey indicators
   const isHomeActive = location.pathname === '/dashboard';
-  const isScenariosActive = location.pathname === '/setup/scenario';
-  const isSetupActive = location.pathname === '/setup/agents' || location.pathname === '/setup/goals' || location.pathname === '/setup/review';
+  const isScenariosActive = location.pathname === '/setup/scenario' || location.pathname === '/setup/mode';
+  const isSetupActive = location.pathname.startsWith('/setup/scenario-data');
   const isNegotiationActive = location.pathname.startsWith('/arena');
   const isReportsActive = location.pathname.startsWith('/reports');
   const isSettingsActive = location.pathname.startsWith('/settings');
@@ -88,37 +89,23 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
       case 'SCENARIO':
         return {
           title: 'Scenario Required First',
-          message: 'You must select a negotiation scenario (Vendor Pricing, Job Offer, or Budget Allocation) before configuring agents or entering the negotiation arena.',
+          message: 'You must select a negotiation scenario (Vendor Pricing, Job Offer, or Budget Allocation) before proceeding.',
           actionText: 'Select Scenario Now',
           actionRoute: '/setup/scenario'
         };
       case 'MODE':
         return {
           title: 'Select Negotiation Mode',
-          message: 'Please select your preferred negotiation mode (AI vs AI Simulation or Human vs AI Practice) before configuring agents.',
+          message: 'Please select your preferred negotiation mode (AI vs AI Simulation or Human vs AI Practice) before entering scenario data.',
           actionText: 'Choose Mode Now',
           actionRoute: '/setup/mode'
         };
-      case 'AGENTS':
+      case 'SCENARIO_DATA':
         return {
-          title: 'Configure Agents Required',
-          message: 'Please complete all required agent details (name, role, and personality) before accessing negotiation screens.',
-          actionText: 'Configure Agents',
-          actionRoute: '/setup/agents'
-        };
-      case 'GOALS':
-        return {
-          title: 'Define Goals & Constraints',
-          message: 'Set up your primary negotiation goals and key constraints before reviewing setup.',
-          actionText: 'Set Goals & Constraints',
-          actionRoute: '/setup/goals'
-        };
-      case 'REVIEW':
-        return {
-          title: 'Review Setup Required',
-          message: 'Please review and confirm your negotiation parameters before entering the arena.',
-          actionText: 'Review & Confirm',
-          actionRoute: '/setup/review'
+          title: 'Scenario Data Required',
+          message: 'Please enter the real scenario parameters before entering the negotiation arena.',
+          actionText: 'Enter Scenario Data',
+          actionRoute: '/setup/scenario-data'
         };
       default:
         return {
@@ -131,7 +118,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   };
 
   const handleProtectedNavigation = (destination: string) => {
-    if (destination === '/dashboard' || destination === '/setup/scenario') {
+    if (destination === '/dashboard' || destination === '/setup/scenario' || destination.startsWith('/reports')) {
       navigate(destination);
       return;
     }
@@ -139,34 +126,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
     const stepId = getStepIdForPath(destination);
     
     if (stepId === 'OUTCOME') {
-      if (reports.length === 0) {
-        const firstIncompleteId = getFirstIncompleteStepId();
-        const actionRoute = getRouteForStepId(firstIncompleteId);
-        setGuardModal({
-          isOpen: true,
-          title: 'No reports yet',
-          message: 'Complete a negotiation to generate an outcome report.',
-          actionText: 'Start Setup',
-          actionRoute
-        });
-      } else {
-        navigate(destination);
-      }
-      return;
-    }
-
-    if (stepId === 'AGENTS') {
-      const firstIncompleteId = getFirstIncompleteStepId();
-      if (firstIncompleteId === 'SCENARIO') {
-        const modalContent = getGuardModalContent(firstIncompleteId);
-        setGuardModal({
-          isOpen: true,
-          ...modalContent
-        });
-      } else {
-        const nextRoute = firstIncompleteId === 'NEGOTIATION' ? '/setup/review' : getRouteForStepId(firstIncompleteId);
-        navigate(nextRoute);
-      }
+      navigate(destination);
       return;
     }
 
@@ -191,6 +151,9 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   // Route Guard to prevent skipping steps
   React.useEffect(() => {
     const path = location.pathname;
+    if (path.startsWith('/reports') || path === '/dashboard') {
+      return;
+    }
     const stepId = getStepIdForPath(path);
     
     if (stepId && !canAccessStep(stepId)) {
@@ -200,18 +163,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
       // Navigate to the first incomplete step
       navigate(redirectRoute, { replace: true });
       
-      // Determine what modal content to show
-      let modalContent;
-      if (stepId === 'OUTCOME' && reports.length === 0) {
-        modalContent = {
-          title: 'No reports yet',
-          message: 'Complete a negotiation to generate an outcome report.',
-          actionText: 'Start Setup',
-          actionRoute: redirectRoute
-        };
-      } else {
-        modalContent = getGuardModalContent(firstIncompleteId);
-      }
+      const modalContent = getGuardModalContent(firstIncompleteId);
       
       setGuardModal({
         isOpen: true,
@@ -222,9 +174,6 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
     location.pathname, 
     selectedScenario, 
     selectedMode, 
-    configuredAgents, 
-    reviewConfirmed, 
-    reports, 
     navigate, 
     getFirstIncompleteStepId, 
     setGuardModal, 
@@ -360,15 +309,15 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
                 <span>Scenarios</span>
               </button>
               <button
-                onClick={() => handleProtectedNavigation('/setup/agents')}
+                onClick={() => handleProtectedNavigation('/setup/scenario-data')}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-all duration-200 cursor-pointer border-none bg-transparent ${
                   isSetupActive 
                     ? 'bg-accent/10 text-accent shadow-xs font-semibold' 
                     : 'text-slategray hover:text-primary hover:bg-gray-150/40'
                 }`}
               >
-                <Sliders size={18} className={isSetupActive ? 'text-accent' : 'text-slategray'} />
-                <span>Setup</span>
+                <FileText size={18} className={isSetupActive ? 'text-accent' : 'text-slategray'} />
+                <span>Scenario Data</span>
               </button>
               <button
                 onClick={() => handleProtectedNavigation('/arena')}

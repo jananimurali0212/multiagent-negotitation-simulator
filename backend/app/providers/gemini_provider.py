@@ -1,4 +1,5 @@
 import json
+import asyncio
 import logging
 from typing import Optional
 from app.core.config import settings
@@ -36,6 +37,28 @@ class GeminiProvider(BaseLLMProvider):
     async def health_check(self) -> bool:
         return self.client is not None and bool(self.api_key)
 
+    @staticmethod
+    def _clean_and_parse_json(text: str) -> dict:
+        """Cleans markdown fences and parses JSON payload safely."""
+        clean_text = text.strip()
+        if clean_text.startswith("```json"):
+            clean_text = clean_text[7:]
+        elif clean_text.startswith("```"):
+            clean_text = clean_text[3:]
+        if clean_text.endswith("```"):
+            clean_text = clean_text[:-3]
+        clean_text = clean_text.strip()
+
+        try:
+            return json.loads(clean_text)
+        except json.JSONDecodeError:
+            # Attempt to extract first complete JSON object from text
+            start = clean_text.find("{")
+            end = clean_text.rfind("}")
+            if start != -1 and end != -1 and end > start:
+                return json.loads(clean_text[start : end + 1])
+            raise
+
     async def generate_decision(
         self,
         prompt: str,
@@ -54,7 +77,8 @@ class GeminiProvider(BaseLLMProvider):
             )
 
         try:
-            response = self.client.models.generate_content(
+            response = await asyncio.to_thread(
+                self.client.models.generate_content,
                 model=self.model_name,
                 contents=prompt,
                 config=types.GenerateContentConfig(
@@ -64,7 +88,28 @@ class GeminiProvider(BaseLLMProvider):
             )
 
             if response and response.text:
-                data = json.loads(response.text)
+                data = self._clean_and_parse_json(response.text)
+
+                usage = getattr(response, "usage_metadata", None)
+                if usage:
+                    try:
+                        from app.negotiation.telemetry import NegotiationTelemetry
+                        NegotiationTelemetry.emit(
+                            event_type="token_usage",
+                            session_id="llm_execution",
+                            agent_name=agent_role,
+                            current_round=current_round,
+                            payload={
+                                "provider": self.provider_name(),
+                                "model": self.model_name,
+                                "prompt_tokens": getattr(usage, "prompt_token_count", 0),
+                                "completion_tokens": getattr(usage, "candidates_token_count", 0),
+                                "total_tokens": getattr(usage, "total_token_count", 0),
+                            },
+                        )
+                    except Exception as telem_err:
+                        logger.debug(f"Telemetry emit skipped: {telem_err}")
+
                 return AgentDecision(
                     action=data.get("action", "counteroffer"),
                     message=data.get("message", "I present our current proposal."),

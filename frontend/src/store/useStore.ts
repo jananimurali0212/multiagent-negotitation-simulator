@@ -51,6 +51,7 @@ export interface JobEmployerContext {
 
 export interface Agent {
   id: string;
+  agent_template_id?: string;
   name: string;
   role: string;
   avatar: string;
@@ -486,6 +487,7 @@ interface AppStore {
   selectedReportId: string | null;
   vendorPricingContext: VendorPricingContext;
   budgetAllocationContext: BudgetAllocationContext;
+  scenarioData: Record<string, any>;
 
   // Global workflow guard modal state
   guardModal: {
@@ -502,11 +504,13 @@ interface AppStore {
   selectScenario: (scenario: Scenario) => void;
   updateVendorPricingContext: (updates: Partial<VendorPricingContext>) => void;
   updateBudgetAllocationContext: (updates: Partial<BudgetAllocationContext>) => void;
+  setScenarioData: (data: Record<string, any>) => void;
+  updateScenarioData: (updates: Record<string, any>) => void;
   setSelectedMode: (mode: 'ai-ai' | 'human-ai' | null) => void;
   setHumanRole: (role: string | null) => void;
   setGuardModal: (modal: Partial<AppStore['guardModal']>) => void;
   setReviewConfirmed: (confirmed: boolean) => void;
-  getFirstIncompleteStepId: () => 'SCENARIO' | 'MODE' | 'AGENTS' | 'GOALS' | 'REVIEW' | 'NEGOTIATION';
+  getFirstIncompleteStepId: () => 'SCENARIO' | 'MODE' | 'SCENARIO_DATA' | 'AGENTS' | 'GOALS' | 'REVIEW' | 'NEGOTIATION';
   canAccessStep: (stepId: string) => boolean;
   getRouteForStepId: (stepId: string) => string;
   getStepIdForPath: (path: string) => string;
@@ -810,6 +814,7 @@ export const useStore = create<AppStore>()(
   humanRole: null,
   vendorPricingContext: DEFAULT_VENDOR_PRICING_CONTEXT,
   budgetAllocationContext: DEFAULT_BUDGET_ALLOCATION_CONTEXT,
+  scenarioData: {},
   
   supportTickets: [
     { id: '1', subject: 'Agent deadlock resolution loop', category: 'Technical Issue', status: 'Open', date: '2026-08-10' },
@@ -828,6 +833,12 @@ export const useStore = create<AppStore>()(
   updateBudgetAllocationContext: (updates) =>
     set((state) => ({
       budgetAllocationContext: { ...state.budgetAllocationContext, ...updates },
+    })),
+
+  setScenarioData: (data) => set({ scenarioData: data }),
+  updateScenarioData: (updates) =>
+    set((state) => ({
+      scenarioData: { ...state.scenarioData, ...updates },
     })),
   
   selectScenario: (scenario) => {
@@ -932,11 +943,9 @@ export const useStore = create<AppStore>()(
   setReviewConfirmed: (confirmed) => set({ reviewConfirmed: confirmed }),
   
   canAccessStep: (stepId) => {
-    if (stepId === 'SCENARIO' || stepId === '') return true;
-    const reports = get().reports;
-    if (stepId === 'OUTCOME') return reports.length > 0;
+    if (stepId === 'SCENARIO' || stepId === '' || stepId === 'OUTCOME') return true;
     
-    const stepOrder = ['SCENARIO', 'MODE', 'AGENTS', 'GOALS', 'REVIEW', 'NEGOTIATION'];
+    const stepOrder = ['SCENARIO', 'MODE', 'SCENARIO_DATA', 'NEGOTIATION'];
     const currentIncomplete = get().getFirstIncompleteStepId();
     const targetIdx = stepOrder.indexOf(stepId);
     const incompleteIdx = stepOrder.indexOf(currentIncomplete);
@@ -950,9 +959,10 @@ export const useStore = create<AppStore>()(
     switch (id) {
       case 'SCENARIO': return '/setup/scenario';
       case 'MODE': return '/setup/mode';
-      case 'AGENTS': return '/setup/agents';
-      case 'GOALS': return '/setup/goals';
-      case 'REVIEW': return '/setup/review';
+      case 'SCENARIO_DATA': return '/setup/scenario-data';
+      case 'AGENTS': return '/setup/scenario-data';
+      case 'GOALS': return '/setup/scenario-data';
+      case 'REVIEW': return '/setup/scenario-data';
       case 'NEGOTIATION': return selectedMode === 'human-ai' ? '/arena/practice' : '/arena/simulation';
       case 'OUTCOME': return '/reports';
       default: return '/setup/scenario';
@@ -960,11 +970,10 @@ export const useStore = create<AppStore>()(
   },
 
   getStepIdForPath: (path) => {
+    if (path.startsWith('/setup/scenario-data')) return 'SCENARIO_DATA';
     if (path.startsWith('/setup/scenario')) return 'SCENARIO';
     if (path.startsWith('/setup/mode')) return 'MODE';
-    if (path.startsWith('/setup/agents')) return 'AGENTS';
-    if (path.startsWith('/setup/goals')) return 'GOALS';
-    if (path.startsWith('/setup/review')) return 'REVIEW';
+    if (path.startsWith('/setup/agents') || path.startsWith('/setup/goals') || path.startsWith('/setup/review')) return 'SCENARIO_DATA';
     if (path.startsWith('/arena/')) return 'NEGOTIATION';
     if (path.startsWith('/reports')) return 'OUTCOME';
     return '';
@@ -972,116 +981,12 @@ export const useStore = create<AppStore>()(
 
   getFirstIncompleteStepId: () => {
     const store = get();
-    const { selectedScenario, selectedMode, humanRole, configuredAgents, reviewConfirmed } = store;
+    const { selectedScenario, selectedMode, scenarioData } = store;
     if (!selectedScenario) return 'SCENARIO';
     if (!selectedMode) return 'MODE';
 
-    const isAgentHuman = (index: number) => {
-      if (selectedMode !== 'human-ai') return false;
-      if (selectedScenario.id === 'vendor-pricing') {
-        return (humanRole === 'buyer' && index === 0) || (humanRole === 'vendor' && index === 1);
-      }
-      if (selectedScenario.id === 'job-offer') {
-        return (humanRole === 'recruiter' && index === 0) || (humanRole === 'candidate' && index === 1);
-      }
-      if (selectedScenario.id === 'budget-allocation') {
-        return (
-          (humanRole === 'department-head' && index === 0) ||
-          (humanRole === 'project-manager' && index === 1) ||
-          (humanRole === 'finance-director' && index === 2)
-        );
-      }
-      return false;
-    };
-
-    const isAgentBaseValid = (agent: any, index: number) => {
-      if (selectedMode === 'human-ai' && isAgentHuman(index)) {
-        return true;
-      }
-      const goalOpt = agent.selectedGoalOption;
-      const constraintOpt = agent.selectedConstraintOption;
-      const goalText = agent.goals?.[0]?.text || '';
-      const constraintVal = agent.constraints?.[0]?.value || '';
-
-      const isGoalValid = goalOpt && goalOpt !== 'Select Primary Goal' && (goalOpt !== 'Other' || goalText.trim() !== '');
-      const isConstraintValid = constraintOpt && constraintOpt !== 'Select Key Constraint' && (constraintOpt !== 'Other' || constraintVal.trim() !== '');
-
-      return (
-        agent.role?.trim() !== '' &&
-        agent.personality !== undefined &&
-        isGoalValid &&
-        isConstraintValid
-      );
-    };
-
-    const expectedAgentCount = selectedScenario.defaultAgents?.length || 2;
-    const agentsValid = configuredAgents.length >= expectedAgentCount && 
-      configuredAgents.slice(0, expectedAgentCount).every((agent, idx) => isAgentBaseValid(agent, idx));
-
-    if (!agentsValid) return 'AGENTS';
-
-    const isBuyerOrCandidateOrPM = (agent: any) => {
-      const roleLower = (agent.role || '').toLowerCase();
-      const idLower = (agent.id || '').toLowerCase();
-      return (
-        idLower.includes('buyer') ||
-        idLower.includes('candidate') ||
-        idLower.includes('project-manager') ||
-        roleLower.includes('buyer') ||
-        roleLower.includes('candidate') ||
-        roleLower.includes('r&d lead') ||
-        roleLower.includes('manager')
-      );
-    };
-
-    let goalsConstraintsValid = true;
-    for (let i = 0; i < expectedAgentCount; i++) {
-      const agent = configuredAgents[i];
-      if (!agent) { goalsConstraintsValid = false; break; }
-      if (selectedMode === 'human-ai' && isAgentHuman(i)) continue;
-      
-      if (selectedScenario.id === 'vendor-pricing') {
-        const vpCtx = store.vendorPricingContext;
-        const hasVpCtx = vpCtx && vpCtx.industry && (vpCtx.productCategory || vpCtx.serviceCategory || vpCtx.categoryType) && vpCtx.targetPrice;
-        if (!hasVpCtx) {
-          if (isBuyerOrCandidateOrPM(agent)) {
-            if (!agent.maxBudget?.trim() || !agent.targetPrice?.trim() || !agent.quantityVolume?.trim() || !agent.deliveryRequirement?.trim() || !agent.paymentTerms?.trim() || !agent.warrantySupport?.trim()) {
-              goalsConstraintsValid = false;
-            }
-          } else {
-            if (!agent.targetPrice?.trim() || !agent.minPrice?.trim() || !agent.quantityVolume?.trim() || !agent.deliveryRequirement?.trim() || !agent.paymentTerms?.trim() || !agent.warrantySupport?.trim()) {
-              goalsConstraintsValid = false;
-            }
-          }
-        }
-      } else if (selectedScenario.id === 'job-offer') {
-        const candidateCtx = agent.jobCandidateContext;
-        const employerCtx = agent.jobEmployerContext;
-        const hasJobCtx = (candidateCtx && candidateCtx.expectedSalary) || (employerCtx && employerCtx.companyName);
-        if (!hasJobCtx) {
-          if (isBuyerOrCandidateOrPM(agent)) {
-            if (!agent.targetSalary?.trim() || !agent.minSalary?.trim() || !agent.equityExpectation?.trim() || !agent.remotePreference?.trim() || !agent.joiningTimeline?.trim()) {
-              goalsConstraintsValid = false;
-            }
-          } else {
-            if (!agent.targetSalary?.trim() || !agent.maxSalary?.trim() || !agent.equityBoundary?.trim() || !agent.remotePreference?.trim() || !agent.hiringTimeline?.trim()) {
-              goalsConstraintsValid = false;
-            }
-          }
-        }
-      } else if (selectedScenario.id === 'budget-allocation') {
-        const bCtx = store.budgetAllocationContext;
-        const hasBCtx = bCtx && bCtx.projectType && bCtx.totalAvailableBudget && bCtx.currentRequestedBudget;
-        if (!hasBCtx) {
-          if (!agent.targetAllocation?.trim() || !agent.minAllocation?.trim() || !agent.departmentPriority?.trim() || !agent.budgetJustification?.trim()) {
-            goalsConstraintsValid = false;
-          }
-        }
-      }
-    }
-
-    if (!goalsConstraintsValid) return 'GOALS';
-    if (!reviewConfirmed) return 'REVIEW';
+    const hasData = scenarioData && Object.keys(scenarioData).length > 0;
+    if (!hasData) return 'SCENARIO_DATA';
 
     return 'NEGOTIATION';
   },

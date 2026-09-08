@@ -63,3 +63,28 @@ def test_human_acceptance_no_prior_offer():
     acc_res = AcceptanceRules.validate_acceptance(buyer, "vendor-pricing", None, [], status="running")
     assert acc_res.is_valid is False
     assert "no proposal terms" in acc_res.human_safe_message.lower()
+
+
+def test_natural_language_offer_extraction():
+    """Natural language messages are accurately parsed into structured offers."""
+    from app.orchestration.orchestrator import OrchestratorService
+
+    # Vendor pricing extraction
+    vp_text = "I would like to propose $52/user/month with Net-30 payment terms and Gold Support included."
+    vp_offer = OrchestratorService._extract_offer_from_text("vendor-pricing", vp_text)
+    assert vp_offer.get("price") == "$52/user/month"
+    assert vp_offer.get("paymentTerms") == "Net-30"
+    assert vp_offer.get("warranty") == "Gold Support"
+
+    # Job offer extraction
+    jo_text = "I am aiming for $168,000 base salary with 14,000 shares and 3 days remote."
+    jo_offer = OrchestratorService._extract_offer_from_text("job-offer", jo_text)
+    assert jo_offer.get("salary") == "$168,000"
+    assert jo_offer.get("equity") == "14,000 shares"
+    assert jo_offer.get("remoteDays") == "3 days remote"
+
+    # Acceptance intent detection
+    assert OrchestratorService._is_acceptance_intent("I accept your proposal") is True
+    assert OrchestratorService._is_acceptance_intent("Deal, let's do it") is True
+    assert OrchestratorService._is_acceptance_intent("I counter with $50") is False
+

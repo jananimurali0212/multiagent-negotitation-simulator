@@ -1,4 +1,5 @@
 import uuid
+from typing import Optional
 from datetime import datetime, timezone
 from sqlalchemy import String, Text, Integer, Boolean, DateTime, ForeignKey, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -30,7 +31,10 @@ class NegotiationSession(Base):
     current_round: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     max_rounds: Mapped[int] = mapped_column(Integer, default=20, nullable=False)  # System Safety Ceiling
     agreement_reached: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    deadlock_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     final_terms: Mapped[dict] = mapped_column(JSON, default=dict, nullable=True)
+    scenario_data: Mapped[dict] = mapped_column(JSON, default=dict, nullable=True)
+    structured_events: Mapped[list] = mapped_column(JSON, default=list, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
     )
@@ -47,6 +51,25 @@ class NegotiationSession(Base):
     agents = relationship("AgentConfiguration", back_populates="session", cascade="all, delete-orphan")
     messages = relationship("NegotiationMessage", back_populates="session", cascade="all, delete-orphan")
     report = relationship("OutcomeReport", back_populates="session", uselist=False, cascade="all, delete-orphan")
+
+    @property
+    def current_turn_speaker(self) -> str:
+        try:
+            from app.orchestration.turn_resolver import TurnResolver
+            msg_count = len(self.messages) if self.messages else 0
+            speaker = TurnResolver.get_current_speaker(self.scenario_id, self.agents, msg_count)
+            return getattr(speaker, "name", "")
+        except Exception:
+            return ""
+
+    @property
+    def is_human_turn(self) -> bool:
+        try:
+            from app.orchestration.turn_resolver import TurnResolver
+            msg_count = len(self.messages) if self.messages else 0
+            return TurnResolver.is_human_turn(self.scenario_id, self.mode, self.human_role, self.agents, msg_count)
+        except Exception:
+            return False
 
 
 class NegotiationMessage(Base):

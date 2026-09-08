@@ -264,10 +264,10 @@ export const ModeSelectionScreen: React.FC = () => {
     }
 
     /*
-      Continue only to the next step.
+      Continue to Real Scenario Data Input.
     */
 
-    navigate('/setup/agents');
+    navigate('/setup/scenario-data');
   };
 
   /* =========================================================
@@ -1009,7 +1009,7 @@ export const ModeSelectionScreen: React.FC = () => {
                   : 'not-allowed',
               }}
             >
-              Continue to Configure Agents
+              Continue to Enter Scenario Data
               <ArrowRight size={18} />
             </button>
           </div>

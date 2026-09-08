@@ -9,7 +9,7 @@ class OfferRules:
     REQUIRED_DIMENSIONS: Dict[str, list] = {
         "vendor-pricing": ["price"],
         "job-offer": ["salary"],
-        "budget-allocation": ["marketingAllocation", "engineeringAllocation", "allocation"],
+        "budget-allocation": ["marketingAllocation", "engineeringAllocation", "allocation", "totalBudget", "allocations", "budget"],
     }
 
     # Dimensions that contain textual/non-monetary values (e.g. "Net-45", "3 years")
@@ -120,6 +120,8 @@ class OfferRules:
         if required_dims:
             # At least one required dimension must be present in offer
             has_required = any(dim in norm_offer for dim in required_dims)
+            if not has_required and scenario_id == "budget-allocation":
+                has_required = any("alloc" in k.lower() or "budget" in k.lower() for k in norm_offer.keys())
             if not has_required:
                 return ValidationResult.invalid_result(
                     error_code="MISSING_REQUIRED_DIMENSION",

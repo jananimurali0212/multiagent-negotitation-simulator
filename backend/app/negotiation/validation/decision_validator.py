@@ -1,3 +1,4 @@
+import re
 import logging
 from typing import Dict, Any, Tuple, Optional
 from app.schemas.agent import AgentConfigSchema
@@ -122,22 +123,55 @@ class DecisionValidator:
         if failed_res.error_category == ValidationErrorCategory.HARD_CONSTRAINT_VIOLATION and decision.offer:
             repaired_offer = dict(decision.offer)
             
+            # Extract currency from agent parameters or constraints
+            curr = "$"
+            params = agent.negotiation_parameters or {}
+            for v in list(params.values()) + [c.value for c in agent.constraints]:
+                m_c = re.search(r"([₹$€£]|rs\.?|inr|usd|eur|gbp)", str(v), re.IGNORECASE)
+                if m_c:
+                    sym = m_c.group(1).strip()
+                    if sym.lower() in ["rs", "rs.", "inr"]:
+                        curr = "₹"
+                    elif sym.lower() == "usd":
+                        curr = "$"
+                    elif sym.lower() == "eur":
+                        curr = "€"
+                    elif sym.lower() == "gbp":
+                        curr = "£"
+                    else:
+                        curr = sym
+                    break
+
             if state.scenario_id == "vendor-pricing":
                 if any(w in role_clean for w in ["sales", "vendor", "seller"]):
-                    min_p = ConstraintRules._extract_param_value(agent, ["minprice", "min_price"]) or 55.0
-                    repaired_offer["price"] = f"${min_p:.0f}/user/month"
+                    min_p = ConstraintRules._extract_param_value(agent, ["minprice", "min_price", "targetprice", "target_price"])
+                    raw_str = str(params.get("minPrice") or params.get("targetPrice") or "")
+                    if min_p is not None:
+                        formatted_p = f"{min_p:,.2f}" if min_p != int(min_p) else f"{int(min_p):,}"
+                        suffix = raw_str[raw_str.find("/"):].strip() if "/" in raw_str else ""
+                        repaired_offer["price"] = f"{curr}{formatted_p}{suffix}"
                 else:
-                    max_b = ConstraintRules._extract_param_value(agent, ["maxbudget", "max_budget"]) or 120000.0
-                    monthly_cap = max_b / (150 * 12) if max_b > 1000 else max_b
-                    repaired_offer["price"] = f"${monthly_cap:.0f}/user/month"
+                    max_b = ConstraintRules._extract_param_value(agent, ["maxbudget", "max_budget", "targetprice", "target_price"])
+                    raw_str = str(params.get("maxBudget") or params.get("targetPrice") or "")
+                    if max_b is not None:
+                        formatted_b = f"{max_b:,.2f}" if max_b != int(max_b) else f"{int(max_b):,}"
+                        suffix = raw_str[raw_str.find("/"):].strip() if "/" in raw_str else ""
+                        repaired_offer["price"] = f"{curr}{formatted_b}{suffix}"
 
             elif state.scenario_id == "job-offer":
                 if any(w in role_clean for w in ["recruiter", "hr"]):
-                    max_s = ConstraintRules._extract_param_value(agent, ["maxsalary", "max_salary"]) or 170000.0
-                    repaired_offer["salary"] = f"${max_s:,.0f}"
+                    max_s = ConstraintRules._extract_param_value(agent, ["maxsalary", "max_salary", "targetsalary", "target_salary"])
+                    if max_s is not None:
+                        repaired_offer["salary"] = f"{curr}{int(max_s):,}"
                 else:
-                    min_s = ConstraintRules._extract_param_value(agent, ["minsalary", "min_salary"]) or 165000.0
-                    repaired_offer["salary"] = f"${min_s:,.0f}"
+                    min_s = ConstraintRules._extract_param_value(agent, ["minsalary", "min_salary", "targetsalary", "target_salary"])
+                    if min_s is not None:
+                        repaired_offer["salary"] = f"{curr}{int(min_s):,}"
+
+            elif state.scenario_id == "budget-allocation":
+                pool_val = ConstraintRules._extract_param_value(agent, ["totalpool", "total_pool", "totalbudget", "total_budget", "maxallocation", "max_allocation"])
+                if pool_val is not None:
+                    repaired_offer["totalBudget"] = f"{curr}{int(pool_val):,}"
 
             repaired = AgentDecision(
                 action="counteroffer",
@@ -171,11 +205,15 @@ class DecisionValidator:
 
     @classmethod
     def _generate_default_agent_offer(cls, scenario_id: str, agent: AgentConfigSchema) -> Dict[str, Any]:
-        """Generates baseline default offer based on agent target parameters."""
+        """Generates baseline default offer based on real agent target parameters."""
         params = agent.negotiation_parameters or {}
         if scenario_id == "vendor-pricing":
-            return {"price": str(params.get("targetPrice", "$55/user/month")), "paymentTerms": "Net-30"}
+            p = params.get("targetPrice") or params.get("minPrice") or params.get("maxBudget") or "Offer"
+            terms = params.get("paymentTerms") or "Net-30"
+            return {"price": str(p), "paymentTerms": str(terms)}
         elif scenario_id == "job-offer":
-            return {"salary": str(params.get("targetSalary", "$165,000"))}
+            target_sal = params.get("targetSalary") or params.get("minSalary") or params.get("maxSalary") or "Salary"
+            return {"salary": str(target_sal)}
         else:
-            return {"engineeringAllocation": "$200,000", "marketingAllocation": "$160,000", "allocation": "$140,000"}
+            pool = params.get("totalPool") or params.get("requestedBudget") or params.get("maxAllocation") or "Allocated"
+            return {"totalBudget": str(pool)}

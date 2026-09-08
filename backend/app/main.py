@@ -24,13 +24,27 @@ async def lifespan(app: FastAPI):
     # Initialize database tables
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        try:
-            if conn.dialect.name == "sqlite":
-                await conn.execute(text("ALTER TABLE negotiation_sessions ADD COLUMN human_role VARCHAR(50)"))
-            else:
-                await conn.execute(text("ALTER TABLE negotiation_sessions ADD COLUMN IF NOT EXISTS human_role VARCHAR(50)"))
-        except Exception as e:
-            logger.info(f"Migration column check note: {e}")
+        migration_statements = [
+            "ALTER TABLE negotiation_sessions ADD COLUMN human_role VARCHAR(50)",
+            "ALTER TABLE negotiation_sessions ADD COLUMN scenario_data JSON",
+            "ALTER TABLE negotiation_sessions ADD COLUMN structured_events JSON",
+            "ALTER TABLE negotiation_sessions ADD COLUMN deadlock_reason TEXT",
+            "ALTER TABLE outcome_reports ADD COLUMN initial_data JSON",
+            "ALTER TABLE outcome_reports ADD COLUMN participants JSON",
+            "ALTER TABLE outcome_reports ADD COLUMN key_events JSON",
+            "ALTER TABLE outcome_reports ADD COLUMN unresolved_terms JSON",
+            "ALTER TABLE outcome_reports ADD COLUMN agent_analysis JSON",
+            "ALTER TABLE outcome_reports ADD COLUMN overall_score INTEGER DEFAULT 85",
+            "ALTER TABLE outcome_reports ADD COLUMN duration_seconds INTEGER DEFAULT 0",
+            "ALTER TABLE outcome_reports ADD COLUMN scenario_analysis JSON",
+            "ALTER TABLE outcome_reports ADD COLUMN final_assessment TEXT",
+        ]
+        for stmt in migration_statements:
+            try:
+                await conn.execute(text(stmt))
+            except Exception as e:
+                # SQLite duplicate column error or postgres exists
+                pass
     
     # Seed preset scenarios
     async with AsyncSessionLocal() as session:
