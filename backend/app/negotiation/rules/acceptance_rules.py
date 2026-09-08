@@ -21,23 +21,30 @@ class AcceptanceRules:
         status: str = "running",
     ) -> ValidationResult:
         """Programmatically evaluates whether an acceptance action is valid."""
-        if status != "running":
+        if status not in ["running", "waiting_for_human"]:
             return ValidationResult.invalid_result(
                 error_code="SESSION_NOT_RUNNING",
                 error_category=ValidationErrorCategory.INVALID_STATE_TRANSITION,
                 human_safe_message="Negotiation session is no longer active.",
-                internal_reason=f"Acceptance attempted on session with non-running status '{status}'.",
+                internal_reason=f"Acceptance attempted on session with non-active status '{status}'.",
                 rule_name="acceptance_active_status_rule",
             )
 
         # 1. Resolve offer terms to accept
-        terms_to_accept = offer or {}
+        terms_to_accept = dict(offer or {})
         if not terms_to_accept and previous_messages:
             for msg in reversed(previous_messages):
                 msg_offer = msg.get("offer_data") if isinstance(msg, dict) else getattr(msg, "offer_data", None)
                 if msg_offer:
-                    terms_to_accept = msg_offer
+                    terms_to_accept = dict(msg_offer)
                     break
+                content = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", "")
+                if content:
+                    from app.negotiation.state_tracker import NegotiationStateTracker
+                    extracted = NegotiationStateTracker.extract_terms_from_text(scenario_id, content)
+                    if extracted:
+                        terms_to_accept = dict(extracted)
+                        break
 
         if not terms_to_accept:
             return ValidationResult.invalid_result(

@@ -88,7 +88,7 @@ export const scenarioApi = {
 // Negotiations API
 export interface NegotiationSetupPayload {
   scenario_id: string;
-  mode: 'ai-ai' | 'human-ai';
+  mode: 'collaborative' | 'risk_averse' | 'aggressive' | 'ai-ai' | 'human-ai' | string;
   human_role?: string;
   scenario_data?: Record<string, any>;
   agents?: AgentDefaultData[];
@@ -120,6 +120,7 @@ export interface NegotiationStepResponse {
   final_terms?: Record<string, any>;
   validation_error?: string;
   deadlock_reason?: string;
+  report?: OutcomeReport | null;
 }
 
 export type TurnResultResponse = NegotiationStepResponse;

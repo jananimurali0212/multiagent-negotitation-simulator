@@ -369,7 +369,7 @@ export interface StoredReport {
   id: string;
   scenarioId: string;
   scenarioTitle: string;
-  mode: 'ai-ai' | 'human-ai';
+  mode: 'collaborative' | 'risk_averse' | 'aggressive' | 'ai-ai' | 'human-ai' | string;
   dateTime: string;
   outcome: 'Agreement Reached' | 'Deadlock' | 'Stopped by User' | 'Unresolved / Terminated';
   agents: Agent[];
@@ -476,6 +476,7 @@ interface AppStore {
   selectedScenario: Scenario | null;
   configuredAgents: Agent[];
   selectedMode: 'ai-ai' | 'human-ai' | null;
+  personality: 'Collaborative' | 'Risk-Averse' | 'Aggressive';
   humanRole: string | null;
   reviewConfirmed: boolean;
   simulation: SimulationState;
@@ -507,6 +508,7 @@ interface AppStore {
   setScenarioData: (data: Record<string, any>) => void;
   updateScenarioData: (updates: Record<string, any>) => void;
   setSelectedMode: (mode: 'ai-ai' | 'human-ai' | null) => void;
+  setPersonality: (personality: 'Collaborative' | 'Risk-Averse' | 'Aggressive') => void;
   setHumanRole: (role: string | null) => void;
   setGuardModal: (modal: Partial<AppStore['guardModal']>) => void;
   setReviewConfirmed: (confirmed: boolean) => void;
@@ -562,9 +564,9 @@ const PRESET_SCENARIOS: Scenario[] = [
     defaultAgents: [
       {
         id: 'buyer-crm',
-        name: 'Alex Rivera',
-        role: 'Procurement Director',
-        avatar: 'AR',
+        name: 'Buyer',
+        role: 'Procurement Director (Buyer)',
+        avatar: 'BY',
         personality: 'Collaborative',
         experience: 'High',
         goals: [
@@ -579,9 +581,9 @@ const PRESET_SCENARIOS: Scenario[] = [
       },
       {
         id: 'seller-crm',
-        name: 'Sarah Chen',
-        role: 'Enterprise Sales VP',
-        avatar: 'SC',
+        name: 'Vendor',
+        role: 'Enterprise Sales VP (Vendor)',
+        avatar: 'VN',
         personality: 'Aggressive',
         experience: 'Medium',
         goals: [
@@ -607,9 +609,9 @@ const PRESET_SCENARIOS: Scenario[] = [
     defaultAgents: [
       {
         id: 'recruiter-hr',
-        name: 'Marcus Brody',
-        role: 'Lead HR Partner',
-        avatar: 'MB',
+        name: 'Employer / Recruiter',
+        role: 'Lead HR Partner (Recruiter)',
+        avatar: 'HR',
         personality: 'Risk-Averse',
         experience: 'High',
         goals: [
@@ -624,9 +626,9 @@ const PRESET_SCENARIOS: Scenario[] = [
       },
       {
         id: 'candidate-hr',
-        name: 'Elena Rostova',
-        role: 'Senior Developer Candidate',
-        avatar: 'ER',
+        name: 'Candidate',
+        role: 'Candidate (Senior Developer)',
+        avatar: 'CD',
         personality: 'Collaborative',
         experience: 'Medium',
         goals: [
@@ -652,9 +654,9 @@ const PRESET_SCENARIOS: Scenario[] = [
     defaultAgents: [
       {
         id: 'dept-head',
-        name: 'David Vance',
+        name: 'Department Head',
         role: 'Department Head (Marketing)',
-        avatar: 'DV',
+        avatar: 'DH',
         personality: 'Collaborative',
         experience: 'High',
         targetAllocation: '$370,000',
@@ -672,9 +674,9 @@ const PRESET_SCENARIOS: Scenario[] = [
       },
       {
         id: 'project-manager',
-        name: 'Nikhil Sharma',
-        role: 'Project Manager (R&D Lead)',
-        avatar: 'NS',
+        name: 'Project Manager',
+        role: 'Project Manager (Engineering)',
+        avatar: 'PM',
         personality: 'Aggressive',
         experience: 'Medium',
         targetAllocation: '$530,000',
@@ -692,9 +694,9 @@ const PRESET_SCENARIOS: Scenario[] = [
       },
       {
         id: 'finance-director',
-        name: 'Elena Rostova',
-        role: 'Finance VP',
-        avatar: 'ER',
+        name: 'Finance Manager',
+        role: 'Finance Manager (VP of Finance)',
+        avatar: 'FM',
         personality: 'Risk-Averse',
         experience: 'High',
         targetAllocation: '$100,000',
@@ -716,34 +718,34 @@ const PRESET_SCENARIOS: Scenario[] = [
 
 const MOCK_SIMULATION_MESSAGES: Record<string, string[]> = {
   'vendor-pricing': [
-    "Alex Rivera (Procurement Director): Hello Sarah, thank you for taking the time today. We're very excited about standardizing on your CRM platform, but we need to find pricing that fits our operating budgets for the coming fiscal year.",
-    "Sarah Chen (Enterprise Sales VP): Hi Alex, it's great to discuss this. We're eager to partner with you. Our standard pricing is $80 per user per month, which delivers incredible value in automations and advanced reporting. We can discuss adjustments if we look at a multi-year partnership.",
-    "Alex Rivera (Procurement Director): Understood, but $80 is significantly above our budget cap of $120,000 annually. For our 200 users, that would total $192,000. We can commit to a 2-year deal, but we need the per-user licensing fee to be closer to $45, and we'd require Gold support included to assure smooth onboarding.",
-    "Sarah Chen (Enterprise Sales VP): I appreciate the commitment to 2 years, Alex. However, $45 is close to a 45% discount, which is not sustainable for our enterprise tier. The best I can offer for a 2-year contract is $68 per user. Regarding support, we can offer our Gold Support tier at a 50% discount ($5/user instead of $10), bringing the total monthly user rate to $73.",
-    "Alex Rivera (Procurement Director): Thank you for the movement, Sarah. $68 is a step forward, but with support at $5, that's $73. For 200 users, that still totals $175,200 annually. To bridge the gap, what if we commit to a 3-year term, and in return we receive the user rate at $52, with Gold Support fully bundled? We also require Net-45 payment terms instead of Net-30 to align with our corporate finance cycles.",
-    "Sarah Chen (Enterprise Sales VP): A 3-year commitment changes the economics. If you sign for 3 years, I can lower the base user licensing to $58 per user. I will bundle the Gold Support package at no additional cost as a gesture of partnership. However, our finance board is strict on cash flow - I must insist on Net-30 terms. Net-45 is a dealbreaker for contract values of this scale.",
-    "Alex Rivera (Procurement Director): The $58 rate with bundled Gold support is very reasonable and puts our annual license cost at $139,200, which we can stretch our budget to accommodate. To finalize, if we agree to Net-30 payment terms, would you be willing to waive the $10,000 premium setup and deployment fee?",
-    "Sarah Chen (Enterprise Sales VP): Alex, you negotiate hard! If we sign the 3-year contract at $58/user/month with Gold Support included, and maintain Net-30 payment terms, I will agree to waive the setup and deployment fee. Let's get the contracts drafted.",
-    "Alex Rivera (Procurement Director): Outstanding, Sarah! This is a fair contract for both sides. I appreciate your collaboration. Let's move forward."
+    "Buyer (Procurement Director): Hello, thank you for taking the time today. We're very excited about standardizing on your CRM platform, but we need to find pricing that fits our operating budgets for the coming fiscal year.",
+    "Vendor (Enterprise Sales VP): Hi, it's great to discuss this. We're eager to partner with you. Our standard pricing is $80 per user per month, which delivers incredible value in automations and advanced reporting. We can discuss adjustments if we look at a multi-year partnership.",
+    "Buyer (Procurement Director): Understood, but $80 is significantly above our budget cap of $120,000 annually. For our 200 users, that would total $192,000. We can commit to a 2-year deal, but we need the per-user licensing fee to be closer to $45, and we'd require Gold support included to assure smooth onboarding.",
+    "Vendor (Enterprise Sales VP): I appreciate the commitment to 2 years. However, $45 is close to a 45% discount, which is not sustainable for our enterprise tier. The best I can offer for a 2-year contract is $68 per user. Regarding support, we can offer our Gold Support tier at a 50% discount ($5/user instead of $10), bringing the total monthly user rate to $73.",
+    "Buyer (Procurement Director): Thank you for the movement. $68 is a step forward, but with support at $5, that's $73. For 200 users, that still totals $175,200 annually. To bridge the gap, what if we commit to a 3-year term, and in return we receive the user rate at $52, with Gold Support fully bundled? We also require Net-45 payment terms instead of Net-30 to align with our corporate finance cycles.",
+    "Vendor (Enterprise Sales VP): A 3-year commitment changes the economics. If you sign for 3 years, I can lower the base user licensing to $58 per user. I will bundle the Gold Support package at no additional cost as a gesture of partnership. However, our finance board is strict on cash flow - I must insist on Net-30 terms. Net-45 is a dealbreaker for contract values of this scale.",
+    "Buyer (Procurement Director): The $58 rate with bundled Gold support is very reasonable and puts our annual license cost at $139,200, which we can stretch our budget to accommodate. To finalize, if we agree to Net-30 payment terms, would you be willing to waive the $10,000 premium setup and deployment fee?",
+    "Vendor (Enterprise Sales VP): You negotiate hard! If we sign the 3-year contract at $58/user/month with Gold Support included, and maintain Net-30 payment terms, I will agree to waive the setup and deployment fee. Let's get the contracts drafted.",
+    "Buyer (Procurement Director): Outstanding! This is a fair contract for both sides. I appreciate your collaboration. Let's move forward."
   ],
   'job-offer': [
-    "Marcus Brody (Lead HR Partner): Hi Elena, welcome. We were extremely impressed with your technical rounds and are excited to offer you the Senior Software Engineer position. Our initial offer includes a base salary of $150,000 and 8,000 stock options, with a hybrid expectation of 3 days in the office.",
-    "Elena Rostova (Senior Developer Candidate): Thank you Marcus! I'm thrilled to receive the offer. I love the team. However, I have another offer on the table for $165,000. Given my 8 years of specialized architecture experience, I was hoping for a base salary closer to $175,000 and 12,000 stock options to make this transition.",
-    "Marcus Brody (Lead HR Partner): I understand your position, Elena. We value your expertise, but our internal compensation grades cap this role's base salary at $160,000. If we raise the base salary to $160,000, we could increase the stock option grant to 10,000 units. We must maintain the 3 days in office policy to align with team cohesion.",
-    "Elena Rostova (Senior Developer Candidate): I appreciate the explanation, Marcus. The $160,000 salary is competitive, and the 10,000 options help. But since the base is still slightly below my market expectation, could we adjust the remote work policy? If I do 2 days in office and 3 days remote, I can manage my commute much better and accept this compensation.",
-    "Marcus Brody (Lead HR Partner): We are committed to employee flexibility, but the team's core sprint days are Tuesday through Thursday, requiring 3 days. What if we offer a one-time sign-on bonus of $10,000 to bridge the base salary gap, keep base at $160,000 and stock options at 11,000, while maintaining the 3-day in-office expectation?",
-    "Elena Rostova (Senior Developer Candidate): That is a very creative solution, Marcus. The sign-on bonus and 11,000 options are highly appealing. If we stick to the 3-day in-office rule, can we agree that after 6 months of onboarding, I can transition to 2 days in office based on manager approval?",
-    "Marcus Brody (Lead HR Partner): I think that is a very reasonable compromise, Elena. We can write that review clause into your offer letter. So, to confirm: $160,000 base, 11,000 stock options, $10,000 signing bonus, 3 days in-office with a review to transition to 2 days after 6 months. Do we have a deal?",
-    "Elena Rostova (Senior Developer Candidate): Yes, Marcus! We have a deal. I'm excited to join the team and sign the offer letter."
+    "Employer (Lead HR Partner): Welcome. We were extremely impressed with your technical rounds and are excited to offer you the Senior Software Engineer position. Our initial offer includes a base salary of $150,000 and 8,000 stock options, with a hybrid expectation of 3 days in the office.",
+    "Candidate (Senior Developer): Thank you! I'm thrilled to receive the offer. I love the team. However, I have another offer on the table for $165,000. Given my 8 years of specialized architecture experience, I was hoping for a base salary closer to $175,000 and 12,000 stock options to make this transition.",
+    "Employer (Lead HR Partner): I understand your position. We value your expertise, but our internal compensation grades cap this role's base salary at $160,000. If we raise the base salary to $160,000, we could increase the stock option grant to 10,000 units. We must maintain the 3 days in office policy to align with team cohesion.",
+    "Candidate (Senior Developer): I appreciate the explanation. The $160,000 salary is competitive, and the 10,000 options help. But since the base is still slightly below my market expectation, could we adjust the remote work policy? If I do 2 days in office and 3 days remote, I can manage my commute much better and accept this compensation.",
+    "Employer (Lead HR Partner): We are committed to employee flexibility, but the team's core sprint days are Tuesday through Thursday, requiring 3 days. What if we offer a one-time sign-on bonus of $10,000 to bridge the base salary gap, keep base at $160,000 and stock options at 11,000, while maintaining the 3-day in-office expectation?",
+    "Candidate (Senior Developer): That is a very creative solution. The sign-on bonus and 11,000 options are highly appealing. If we stick to the 3-day in-office rule, can we agree that after 6 months of onboarding, I can transition to 2 days in office based on manager approval?",
+    "Employer (Lead HR Partner): I think that is a very reasonable compromise. We can write that review clause into your offer letter. So, to confirm: $160,000 base, 11,000 stock options, $10,000 signing bonus, 3 days in-office with a review to transition to 2 days after 6 months. Do we have a deal?",
+    "Candidate (Senior Developer): Yes! We have a deal. I'm excited to join the team and sign the offer letter."
   ],
   'budget-allocation': [
-    "Elena Rostova (Finance VP): Welcome Nikhil. We have $1,000,000 available in our corporate innovation fund. As Finance VP, my priority is ensuring commercialization. I propose allocating 60% of the funds to product marketing, sales activation, and PR, with the remaining 40% going to core engineering.",
-    "Nikhil Sharma (R&D Lead): Thanks Elena. I understand the commercial focus, but we cannot sell a product that isn't fully built. Our engineering team requires a minimum of $650,000 (65%) to hire the contractors and license the GPU cluster required for the prototype. Without it, our launch will be delayed.",
-    "Elena Rostova (Finance VP): Nikhil, a delayed prototype is a risk, but a prototype with no market awareness is a total loss. Our compliance guidelines require a 10% emergency buffer ($100,000) reserved in the finance bank. That leaves $900,000. I can offer $450,000 for R&D development, provided it's released in quarterly milestones, and $450,000 for the marketing campaign.",
-    "Nikhil Sharma (R&D Lead): The milestone release is manageable, but $450,000 is too low. Our fixed contractor salaries alone are $450,000 - leaving zero budget for hardware licenses or testing. What if we split the budget as: $580,000 for R&D engineering, $320,000 for marketing launch, and we keep the $100,000 emergency buffer. For efficiency, we can purchase a lower-tier hardware package.",
-    "Elena Rostova (Finance VP): That proposal is a good step. However, $320,000 is tight for a national campaign. If we allocate $530,000 to R&D, $370,000 to marketing, and maintain the $100,000 buffer, we can approve this allocation immediately. The R&D funds will be distributed in three phases based on prototype progress.",
-    "Nikhil Sharma (R&D Lead): $530,000 is enough to cover our developers and purchase the core server licenses we need. The phased distribution is acceptable. I agree to this allocation: $530,000 R&D, $370,000 Marketing, and $100,000 Finance buffer. This gives us the resources to deliver a quality product and support its launch.",
-    "Elena Rostova (Finance VP): Excellent, Nikhil. This budget split maximizes our chances of both technical and market success. I'll document the agreement and initiate the first milestone transfer."
+    "Finance Manager (Finance VP): Welcome. We have $1,000,000 available in our corporate innovation fund. As Finance VP, my priority is ensuring commercialization. I propose allocating 60% of the funds to product marketing, sales activation, and PR, with the remaining 40% going to core engineering.",
+    "Project Manager (Engineering Lead): Thanks. I understand the commercial focus, but we cannot sell a product that isn't fully built. Our engineering team requires a minimum of $650,000 (65%) to hire the contractors and license the GPU cluster required for the prototype. Without it, our launch will be delayed.",
+    "Finance Manager (Finance VP): A delayed prototype is a risk, but a prototype with no market awareness is a total loss. Our compliance guidelines require a 10% emergency buffer ($100,000) reserved in the finance bank. That leaves $900,000. I can offer $450,000 for R&D development, provided it's released in quarterly milestones, and $450,000 for the marketing campaign.",
+    "Project Manager (Engineering Lead): The milestone release is manageable, but $450,000 is too low. Our fixed contractor salaries alone are $450,000 - leaving zero budget for hardware licenses or testing. What if we split the budget as: $580,000 for R&D engineering, $320,000 for marketing launch, and we keep the $100,000 emergency buffer. For efficiency, we can purchase a lower-tier hardware package.",
+    "Finance Manager (Finance VP): That proposal is a good step. However, $320,000 is tight for a national campaign. If we allocate $530,000 to R&D, $370,000 to marketing, and maintain the $100,000 buffer, we can approve this allocation immediately. The R&D funds will be distributed in three phases based on prototype progress.",
+    "Project Manager (Engineering Lead): $530,000 is enough to cover our developers and purchase the core server licenses we need. The phased distribution is acceptable. I agree to this allocation: $530,000 R&D, $370,000 Marketing, and $100,000 Finance buffer. This gives us the resources to deliver a quality product and support its launch.",
+    "Finance Manager (Finance VP): Excellent. This budget split maximizes our chances of both technical and market success. I'll document the agreement and initiate the first milestone transfer."
   ]
 };
 
@@ -811,6 +813,7 @@ export const useStore = create<AppStore>()(
   
   reports: [],
   selectedReportId: null,
+  personality: 'Collaborative',
   humanRole: null,
   vendorPricingContext: DEFAULT_VENDOR_PRICING_CONTEXT,
   budgetAllocationContext: DEFAULT_BUDGET_ALLOCATION_CONTEXT,
@@ -936,6 +939,7 @@ export const useStore = create<AppStore>()(
   },
   
   setSelectedMode: (mode) => set({ selectedMode: mode, reviewConfirmed: false }),
+  setPersonality: (personality) => set({ personality }),
   setHumanRole: (role) => set({ humanRole: role, reviewConfirmed: false }),
   setGuardModal: (modal) => set((state) => ({
     guardModal: { ...state.guardModal, ...modal }

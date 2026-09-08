@@ -8,12 +8,16 @@ from sqlalchemy.orm import selectinload
 
 from app.models.negotiation import NegotiationSession, NegotiationMessage
 from app.models.agent import AgentConfiguration
+from app.models.report import OutcomeReport
 from app.orchestration.graph_nodes import LangGraphNegotiationEngine, NegotiationState
 from app.reports.report_generator import ReportGenerator
 from app.schemas.agent import AgentConfigSchema
+from app.schemas.report import ReportResponse
 from app.negotiation.rules.offer_rules import OfferRules
 from app.negotiation.rules.constraint_rules import ConstraintRules
 from app.negotiation.rules.acceptance_rules import AcceptanceRules
+from app.negotiation.state_tracker import NegotiationStateTracker
+from app.orchestration.turn_resolver import TurnResolver
 
 logger = logging.getLogger("backend.orchestrator")
 
@@ -46,122 +50,97 @@ class OrchestratorService:
             except Exception as e:
                 logger.warning(f"LangGraph compilation note: {e}")
 
+    @classmethod
+    async def finalize_negotiation(
+        cls,
+        session: NegotiationSession,
+        outcome: str,
+        db: AsyncSession,
+        status: Optional[str] = None,
+        final_terms: Optional[Dict[str, Any]] = None,
+        deadlock_reason: Optional[str] = None,
+    ) -> OutcomeReport:
+        """
+        Canonical, centralized terminal state handler.
+        Execution Order:
+        1. Determine outcome & terminal status
+        2. Format and update final terms / deadlock reason
+        3. Persist final negotiation state
+        4. Generate report from persisted/current state
+        5. Persist and return report
+        """
+        is_agreement = outcome in ["Agreement Reached", "Agreement", "Partial Agreement"]
+        session.agreement_reached = is_agreement
+
+        if status:
+            session.status = status
+        else:
+            session.status = "finished" if is_agreement else "deadlock"
+
+        if deadlock_reason:
+            session.deadlock_reason = deadlock_reason
+
+        # Format and normalize final terms
+        resolved_terms = dict(final_terms or session.final_terms or {})
+        sc_curr = ReportGenerator._detect_currency(session.scenario_data or {}, default="")
+        if not sc_curr and session.messages:
+            for m in session.messages:
+                c_found = ReportGenerator._detect_currency({"content": getattr(m, "content", "")}, default="")
+                if c_found:
+                    sc_curr = c_found
+                    break
+
+        if resolved_terms and sc_curr:
+            if "salary" in resolved_terms:
+                s_num = ReportGenerator._parse_num(resolved_terms["salary"])
+                if s_num and s_num > 0:
+                    resolved_terms["salary"] = f"{sc_curr}{int(s_num):,}"
+            elif "price" in resolved_terms:
+                p_num = ReportGenerator._parse_num(resolved_terms["price"])
+                if p_num and p_num > 0:
+                    resolved_terms["price"] = f"{sc_curr}{int(p_num):,}" if p_num == int(p_num) else f"{sc_curr}{p_num:,.2f}"
+
+        if session.deadlock_reason and "deadlock_reason" not in resolved_terms:
+            resolved_terms["deadlock_reason"] = session.deadlock_reason
+
+        session.final_terms = resolved_terms
+        await db.commit()
+
+        report = await ReportGenerator.generate_and_save_report(session, outcome, db)
+        return report
+
     @staticmethod
-    def _extract_offer_from_text(scenario_id: str, text: str, default_curr: str = "") -> Dict[str, Any]:
+    def _extract_offer_from_text(
+        scenario_id: str,
+        text: str,
+        default_curr: str = "",
+        existing_terms: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
         """Extracts structured offer dimensions from natural language input across all currency/format variations."""
-        offer: Dict[str, Any] = {}
-        if not text:
-            return offer
-
-        text_lower = text.lower()
-        curr_match = re.search(r"([₹$€£]|rs\.?|inr|usd|eur|gbp)", text, re.IGNORECASE)
-        curr = curr_match.group(1).strip() if curr_match else default_curr
-        if curr.lower() in ["rs", "rs.", "inr"]:
-            curr = "₹"
-        elif curr.lower() == "usd":
-            curr = "$"
-        elif curr.lower() == "eur":
-            curr = "€"
-        elif curr.lower() == "gbp":
-            curr = "£"
-
-        if scenario_id == "vendor-pricing":
-            price_val = None
-            unit_suffix = ""
-            explicit_price = re.search(r"(?:[₹$€£]|rs\.?|inr|usd|eur|gbp)\s*(\d+(?:,\d{3})*(?:\.\d+)?|\d+(?:,\d{2})*(?:\.\d+)?|\d+)(\s*\/\s*(?:user|seat|month|unit|mo|yr)(?:\s*\/\s*(?:month|mo|yr))?)?", text, re.IGNORECASE)
-            if explicit_price:
-                price_val = float(explicit_price.group(1).replace(",", ""))
-                if explicit_price.group(2):
-                    unit_suffix = explicit_price.group(2).strip()
-            else:
-                word_price = re.search(r"(\d+(?:,\d+)*(?:\.\d+)?)\s*(?:[₹$€£]|dollars?|rupees?|bucks?|\/\s*(?:user|seat|month|unit|mo|yr)|per\s*(?:user|seat|month|unit|mo))", text, re.IGNORECASE)
-                if word_price:
-                    price_val = float(word_price.group(1).replace(",", ""))
-                else:
-                    verb_price = re.search(r"(?:pay|offer|rate|at|to|price\s*of|price\s*is|for)\s*(?:[₹$€£]\s*)?(\d+(?:,\d+)*(?:\.\d+)?)", text, re.IGNORECASE)
-                    if verb_price:
-                        price_val = float(verb_price.group(1).replace(",", ""))
-
-            if price_val is not None:
-                formatted_num = f"{price_val:,.2f}" if price_val != int(price_val) else f"{int(price_val):,}"
-                offer["price"] = f"{curr}{formatted_num}{unit_suffix}"
-
-            if "net-60" in text_lower or "net 60" in text_lower:
-                offer["paymentTerms"] = "Net-60"
-            elif "net-45" in text_lower or "net 45" in text_lower:
-                offer["paymentTerms"] = "Net-45"
-            elif "net-30" in text_lower or "net 30" in text_lower:
-                offer["paymentTerms"] = "Net-30"
-
-            if "gold" in text_lower:
-                offer["warranty"] = "Gold Support"
-            elif "silver" in text_lower:
-                offer["warranty"] = "Silver Support"
-            elif "standard" in text_lower:
-                offer["warranty"] = "Standard Support"
-
-        elif scenario_id == "job-offer":
-            sal_val = None
-            k_match = re.search(r"(?:[₹$€£]|rs\.?|inr|usd|\b)\s*(\d{1,4})\s*k\b", text, re.IGNORECASE)
-            if k_match:
-                sal_val = int(k_match.group(1)) * 1000
-            else:
-                sal_match = re.search(r"(?:[₹$€£]|rs\.?|inr|usd)?\s*(\d{1,3}(?:,\d{3})+|\d{1,2}(?:,\d{2})*,\d{3}|\d{4,9})\b", text)
-                if sal_match:
-                    num_clean = int(sal_match.group(1).replace(",", ""))
-                    sal_val = num_clean
-
-            if sal_val:
-                offer["salary"] = f"{curr}{sal_val:,}"
-
-            eq_k_match = re.search(r"(\d{1,3})\s*k\s*(?:shares|options|units|equity|stock)", text, re.IGNORECASE)
-            if eq_k_match:
-                eq_val = int(eq_k_match.group(1)) * 1000
-                offer["equity"] = f"{eq_val:,} shares"
-            else:
-                eq_match = re.search(r"(\d{1,3}(?:,\d{3})+|\d{4,6})\s*(?:shares|options|units|equity|stock)", text, re.IGNORECASE)
-                if eq_match:
-                    num_eq = int(eq_match.group(1).replace(",", ""))
-                    offer["equity"] = f"{num_eq:,} shares"
-
-            remote_match = re.search(r"(\d+)\s*(?:days?\s*(?:remote|wfh|from home|in office)|remote\s*days?)", text, re.IGNORECASE)
-            if remote_match:
-                offer["remoteDays"] = f"{remote_match.group(1)} days remote"
-            elif "fully remote" in text_lower or "full remote" in text_lower:
-                offer["remoteDays"] = "5 days remote"
-            elif "remote" in text_lower:
-                offer["workMode"] = "Remote"
-            elif "hybrid" in text_lower:
-                offer["workMode"] = "Hybrid"
-            elif "onsite" in text_lower or "on-site" in text_lower or "office" in text_lower:
-                offer["workMode"] = "On-site"
-
-        elif scenario_id == "budget-allocation":
-            bud_match = re.search(r"(?:[₹$€£]|rs\.?|inr|usd)?\s*(\d{1,3}(?:,\d{3})+|\d{1,2}(?:,\d{2})*,\d{3}|\d{4,9})\b", text)
-            if bud_match:
-                offer["totalBudget"] = f"{curr}{int(bud_match.group(1).replace(',', '')):,}"
-
-        return offer
+        return NegotiationStateTracker.extract_terms_from_text(
+            scenario_id,
+            text,
+            default_curr=default_curr,
+            existing_terms=existing_terms,
+        )
 
     @staticmethod
     def _is_acceptance_intent(text: str) -> bool:
         """Determines if the user message conveys clear acceptance intent."""
         if not text:
             return False
-        clean = text.strip().lower()
-        # Explicit negation check
-        if any(neg in clean for neg in ["cannot accept", "can't accept", "not accept", "do not accept", "won't accept", "unable to accept", "reject", "counter"]):
+        return NegotiationStateTracker.detect_intent(text)["is_acceptance"]
+
+    @staticmethod
+    def _is_deadlock_intent(text: str) -> bool:
+        """Determines if the user message declares deadlock, walk away, or insurmountable impasse."""
+        if not text:
             return False
-
-        accept_exact = {"accept", "accepted", "i accept", "agree", "i agree", "deal", "done deal", "sounds good", "let's do it", "we accept", "i agree to these terms"}
-        if clean in accept_exact:
-            return True
-
-        accept_phrases = [
-            "i accept", "we accept", "accept your", "accept the", "accept this",
-            "agree to", "agreed to", "deal", "happy to accept", "delighted to accept", "pleased to accept"
-        ]
-        return any(phrase in clean for phrase in accept_phrases)
+        clean = text.strip().lower()
+        return bool(re.search(
+            r"\b(impasse|deadlock|walk away|withdraw from negotiation|negotiations? ended|no deal|cannot reach an agreement|reject and terminate)\b",
+            clean
+        ))
 
     @staticmethod
     def _record_structured_event(
@@ -251,15 +230,23 @@ class OrchestratorService:
                 user_message = None
 
         if session.status in ["finished", "deadlock", "terminated"]:
+            stmt_rep = select(OutcomeReport).where(OutcomeReport.session_id == session.id).order_by(OutcomeReport.created_at.desc())
+            res_rep = await db.execute(stmt_rep)
+            persisted_rep = res_rep.scalars().first()
+            rep_data = None
+            if persisted_rep:
+                try:
+                    rep_data = ReportResponse.model_validate(persisted_rep).model_dump(mode="json")
+                except Exception:
+                    rep_data = None
             return {
                 "status": session.status,
                 "round": session.current_round,
                 "message": None,
                 "agreement_reached": session.agreement_reached,
                 "final_terms": session.final_terms,
+                "report": rep_data,
             }
-
-        from app.orchestration.turn_resolver import TurnResolver
 
         ordered_agents = TurnResolver.get_ordered_agents(session.scenario_id, session.agents)
         if not ordered_agents:
@@ -403,10 +390,39 @@ class OrchestratorService:
                                 sc_curr = c_detected
                                 break
 
-                # Extract terms from text if user_offer is empty
-                effective_user_offer = user_offer or self._extract_offer_from_text(session.scenario_id, user_message, default_curr=sc_curr)
+                # Extract terms from text with cumulative existing terms preserved
+                existing_terms = dict(session.final_terms or {})
+                effective_user_offer = user_offer or self._extract_offer_from_text(
+                    session.scenario_id,
+                    user_message,
+                    default_curr=sc_curr,
+                    existing_terms=existing_terms,
+                )
 
                 is_accept = self._is_acceptance_intent(user_message)
+
+                # Prior AI offer check: A user cannot accept if the AI has not made an offer yet
+                ai_prior_msgs = [m for m in messages if not m.is_user]
+                if is_accept and not ai_prior_msgs:
+                    is_accept = False
+
+                # Term comparison check: If user message specifies a different price/salary than AI's latest offer, it is a counteroffer!
+                if is_accept and ai_prior_msgs:
+                    last_ai_offer = None
+                    for m in reversed(ai_prior_msgs):
+                        if m.offer_data and any(v for v in m.offer_data.values()):
+                            last_ai_offer = dict(m.offer_data)
+                            break
+                    if last_ai_offer and effective_user_offer:
+                        for core_k in ["price", "salary", "total_budget"]:
+                            if core_k in effective_user_offer and core_k in last_ai_offer:
+                                user_val = NegotiationStateTracker.parse_numeric(str(effective_user_offer[core_k]))
+                                ai_val = NegotiationStateTracker.parse_numeric(str(last_ai_offer[core_k]))
+                                if user_val is not None and ai_val is not None:
+                                    if abs(user_val - ai_val) > max(1.0, ai_val * 0.01):
+                                        # Terms differ: this is a counteroffer, not acceptance
+                                        is_accept = False
+                                        break
 
                 # Handle User Acceptance
                 if is_accept:
@@ -417,65 +433,133 @@ class OrchestratorService:
                         }
                         for m in messages
                     ]
-                    # Resolve offer terms to accept
-                    terms_to_accept = effective_user_offer or session.final_terms
-                    if not terms_to_accept:
-                        for m in reversed(messages):
-                            if m.offer_data:
-                                terms_to_accept = dict(m.offer_data)
-                                break
+                    # Track authoritative cumulative terms to accept across all turns
+                    cum_state = NegotiationStateTracker.track_cumulative_state(
+                        session_id=session.id,
+                        scenario_id=session.scenario_id,
+                        mode=session.mode,
+                        initial_data=session.scenario_data or {},
+                        messages=existing_msgs,
+                        participants=[],
+                        current_round=session.current_round,
+                        status="running",
+                    )
+                    terms_to_accept = dict(cum_state.get("current_terms") or {})
+                    if effective_user_offer:
+                        for k, v in effective_user_offer.items():
+                            terms_to_accept[k] = v
 
                     if terms_to_accept and sc_curr:
                         terms_to_accept = dict(terms_to_accept)
                         if "salary" in terms_to_accept:
                             s_num = ReportGenerator._parse_num(terms_to_accept["salary"])
-                            if s_num:
+                            if s_num and s_num > 0:
                                 terms_to_accept["salary"] = f"{sc_curr}{int(s_num):,}"
+                            else:
+                                # Recover from latest valid message or scenario baseline
+                                for m_obj in reversed(messages):
+                                    m_data = getattr(m_obj, "offer_data", {}) or {}
+                                    m_sal = m_data.get("salary")
+                                    m_p = ReportGenerator._parse_num(m_sal)
+                                    if m_p and m_p > 0:
+                                        terms_to_accept["salary"] = f"{sc_curr}{int(m_p):,}"
+                                        break
                         elif "price" in terms_to_accept:
                             p_num = ReportGenerator._parse_num(terms_to_accept["price"])
-                            if p_num:
+                            if p_num and p_num > 0:
                                 terms_to_accept["price"] = f"{sc_curr}{int(p_num):,}" if p_num == int(p_num) else f"{sc_curr}{p_num:,.2f}"
 
                     acc_res = AcceptanceRules.validate_acceptance(
                         human_schema, session.scenario_id, terms_to_accept, existing_msgs, status=session.status
                     )
-                    if not acc_res.is_valid:
+                    if is_accept:
+                        # Human accepted validly
+                        user_msg = NegotiationMessage(
+                            session_id=session.id,
+                            sender=human_agent.name if (human_agent and human_agent.name) else "You (User)",
+                            role=human_agent.role if (human_agent and human_agent.role) else "Participant",
+                            avatar=human_agent.avatar if (human_agent and human_agent.avatar) else "US",
+                            content=user_message,
+                            offer_data=terms_to_accept or {},
+                            round=session.current_round,
+                            turn_index=turn_count,
+                            is_user=True,
+                        )
+                        db.add(user_msg)
+                        self._record_structured_event(
+                            session, user_msg.sender, user_msg.role, session.current_round, turn_count, terms_to_accept or {}, user_message, is_accept=True
+                        )
+
+                        report = await self.finalize_negotiation(
+                            session=session,
+                            outcome="Agreement Reached",
+                            db=db,
+                            status="finished",
+                            final_terms=terms_to_accept or {},
+                        )
+                        report_data = None
+                        if report:
+                            try:
+                                report_data = ReportResponse.model_validate(report).model_dump(mode="json")
+                            except Exception:
+                                report_data = None
+
                         return {
-                            "status": session.status,
+                            "status": "finished",
                             "round": session.current_round,
-                            "current_turn_speaker": human_agent.name if human_agent else "",
-                            "message": None,
-                            "agreement_reached": False,
-                            "final_terms": None,
-                            "validation_error": acc_res.human_safe_message,
+                            "current_turn_speaker": human_agent.name,
+                            "message": {
+                                "id": user_msg.id,
+                                "sender": user_msg.sender,
+                                "role": user_msg.role,
+                                "avatar": user_msg.avatar,
+                                "content": user_msg.content,
+                                "round": user_msg.round,
+                                "turn_index": user_msg.turn_index,
+                                "is_user": True,
+                                "timestamp": (user_msg.timestamp or datetime.now(timezone.utc)).isoformat(),
+                                "offer_data": user_msg.offer_data,
+                            },
+                            "agreement_reached": True,
+                            "final_terms": session.final_terms,
+                            "is_human_turn": False,
+                            "report": report_data,
                         }
 
-                    # Human accepted validly
+                # Handle User Deadlock / Walk-away Declaration
+                if self._is_deadlock_intent(user_message):
                     user_msg = NegotiationMessage(
                         session_id=session.id,
                         sender=human_agent.name if (human_agent and human_agent.name) else "You (User)",
                         role=human_agent.role if (human_agent and human_agent.role) else "Participant",
                         avatar=human_agent.avatar if (human_agent and human_agent.avatar) else "US",
                         content=user_message,
-                        offer_data=terms_to_accept or {},
+                        offer_data=effective_user_offer or {},
                         round=session.current_round,
                         turn_index=turn_count,
                         is_user=True,
                     )
                     db.add(user_msg)
                     self._record_structured_event(
-                        session, user_msg.sender, user_msg.role, session.current_round, turn_count, terms_to_accept or {}, user_message, is_accept=True
+                        session, user_msg.sender, user_msg.role, session.current_round, turn_count, effective_user_offer or {}, user_message
                     )
-
-                    session.status = "finished"
-                    session.agreement_reached = True
-                    session.final_terms = terms_to_accept or {}
-                    await db.commit()
-
-                    await ReportGenerator.generate_and_save_report(session, "Agreement Reached", db)
-
+                    deadlock_rsn = "Human participant declared impasse and concluded negotiations."
+                    report = await self.finalize_negotiation(
+                        session=session,
+                        outcome="Deadlock",
+                        db=db,
+                        status="deadlock",
+                        final_terms=effective_user_offer or {},
+                        deadlock_reason=deadlock_rsn,
+                    )
+                    report_data = None
+                    if report:
+                        try:
+                            report_data = ReportResponse.model_validate(report).model_dump(mode="json")
+                        except Exception:
+                            report_data = None
                     return {
-                        "status": "finished",
+                        "status": "deadlock",
                         "round": session.current_round,
                         "current_turn_speaker": human_agent.name,
                         "message": {
@@ -490,9 +574,11 @@ class OrchestratorService:
                             "timestamp": (user_msg.timestamp or datetime.now(timezone.utc)).isoformat(),
                             "offer_data": user_msg.offer_data,
                         },
-                        "agreement_reached": True,
+                        "agreement_reached": False,
+                        "deadlock_reason": deadlock_rsn,
                         "final_terms": session.final_terms,
                         "is_human_turn": False,
+                        "report": report_data,
                     }
 
                 # Track constraint and structure notes for human input
@@ -534,6 +620,37 @@ class OrchestratorService:
             f"message_count={len(messages)} | user_message_present={bool(user_message)}"
         )
 
+        # Build cumulative negotiation state across full conversation memory
+        msg_dicts = [
+            {
+                "sender": m.sender,
+                "role": m.role,
+                "avatar": m.avatar,
+                "content": m.content,
+                "offer_data": m.offer_data,
+                "round": m.round,
+                "turn_index": m.turn_index,
+                "is_user": m.is_user,
+            }
+            for m in messages
+        ]
+        cum_state = NegotiationStateTracker.track_cumulative_state(
+            session_id=session.id,
+            scenario_id=session.scenario_id,
+            mode=session.mode,
+            initial_data=session.scenario_data or {},
+            messages=msg_dicts,
+            participants=[],
+            current_round=session.current_round,
+            status=session.status,
+        )
+
+        active_terms = dict(cum_state.get("current_terms") or {})
+        if session.final_terms:
+            for k, v in session.final_terms.items():
+                if k not in active_terms:
+                    active_terms[k] = v
+
         # Construct LangGraph State
         initial_state: NegotiationState = {
             "session_id": session.id,
@@ -559,25 +676,14 @@ class OrchestratorService:
                 }
                 for a in ordered_agents
             ],
-            "messages": [
-                {
-                    "sender": m.sender,
-                    "role": m.role,
-                    "avatar": m.avatar,
-                    "content": m.content,
-                    "offer_data": m.offer_data,
-                    "round": m.round,
-                    "turn_index": m.turn_index,
-                    "is_user": m.is_user,
-                }
-                for m in messages
-            ],
-            "current_offer": session.final_terms,
+            "messages": msg_dicts,
+            "current_offer": active_terms,
             "agreement_reached": session.agreement_reached,
             "deadlock_detected": (session.status == "deadlock"),
             "deadlock_reason": getattr(session, "deadlock_reason", None),
             "status": session.status,
             "latest_decision": None,
+            "cumulative_state": cum_state,
         }
 
         # Run compiled LangGraph workflow if available, otherwise execute nodes
@@ -628,29 +734,25 @@ class OrchestratorService:
 
         session.current_round = initial_state["current_round"]
 
+        report_data = None
         if initial_state["status"] in ["finished", "deadlock"]:
-            session.status = initial_state["status"]
-            session.agreement_reached = initial_state.get("agreement_reached", False)
-            if initial_state.get("deadlock_reason"):
-                session.deadlock_reason = initial_state.get("deadlock_reason")
+            outcome_str = "Agreement Reached" if initial_state.get("agreement_reached") else "Deadlock"
+            deadlock_rsn = initial_state.get("deadlock_reason")
             raw_final_terms = dict(initial_state.get("current_offer") or {})
-            if session.deadlock_reason and "deadlock_reason" not in raw_final_terms:
-                raw_final_terms["deadlock_reason"] = session.deadlock_reason
-            sc_curr = ReportGenerator._detect_currency(session.scenario_data or {}, default="")
-            if sc_curr and raw_final_terms:
-                if "salary" in raw_final_terms:
-                    s_num = ReportGenerator._parse_num(raw_final_terms["salary"])
-                    if s_num:
-                        raw_final_terms["salary"] = f"{sc_curr}{int(s_num):,}"
-                elif "price" in raw_final_terms:
-                    p_num = ReportGenerator._parse_num(raw_final_terms["price"])
-                    if p_num:
-                        raw_final_terms["price"] = f"{sc_curr}{int(p_num):,}" if p_num == int(p_num) else f"{sc_curr}{p_num:,.2f}"
-            session.final_terms = raw_final_terms
-            await db.commit()
-
-            outcome_str = "Agreement Reached" if session.agreement_reached else "Deadlock"
-            await ReportGenerator.generate_and_save_report(session, outcome_str, db)
+            report = await self.finalize_negotiation(
+                session=session,
+                outcome=outcome_str,
+                db=db,
+                status=initial_state["status"],
+                final_terms=raw_final_terms,
+                deadlock_reason=deadlock_rsn,
+            )
+            report_data = None
+            if report:
+                try:
+                    report_data = ReportResponse.model_validate(report).model_dump(mode="json")
+                except Exception:
+                    report_data = None
             next_speaker_name = ai_msg.sender
             next_is_human = False
         else:
@@ -694,5 +796,6 @@ class OrchestratorService:
             "deadlock_reason": getattr(session, "deadlock_reason", None),
             "final_terms": session.final_terms,
             "is_human_turn": next_is_human,
+            "report": report_data,
         }
 

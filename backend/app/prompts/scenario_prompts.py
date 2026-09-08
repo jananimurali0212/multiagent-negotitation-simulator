@@ -1,6 +1,7 @@
 from typing import List, Dict, Any, Optional
 from app.prompts.normalizer import PromptNormalizer
 from app.prompts.strategy_library import StrategyEngine
+from app.negotiation.mode_strategy import get_personality_strategy, get_mode_strategy
 
 
 def build_system_prompt(
@@ -18,13 +19,30 @@ def build_system_prompt(
     current_round: int = 1,
     session_id: Optional[str] = None,
     scenario_data: Optional[Dict[str, Any]] = None,
+    mode: str = "collaborative",
+    cumulative_state: Optional[Dict[str, Any]] = None,
 ) -> str:
-    """Constructs a structured system prompt for negotiation agents grounded directly on real user scenario data."""
+    """Constructs a structured system prompt for negotiation agents grounded directly on real user scenario data, cumulative state memory, and mode strategy."""
     
+    from app.negotiation.state_tracker import NegotiationStateTracker
+
     # 1. Normalize Inputs
     norm_goals = PromptNormalizer.normalize_goals(goals)
     norm_constraints = PromptNormalizer.normalize_constraints(constraints)
     norm_params, custom_instructions = PromptNormalizer.normalize_parameters(negotiation_parameters)
+
+    # 2. Build or verify cumulative negotiation state across all turns
+    if not cumulative_state:
+        cumulative_state = NegotiationStateTracker.track_cumulative_state(
+            session_id=session_id or "",
+            scenario_id=scenario_id,
+            mode=mode,
+            initial_data=scenario_data or {},
+            messages=public_transcript,
+            participants=[],
+            current_round=current_round,
+            status="running",
+        )
 
     # 2. Select Dynamic Role & Scenario Aware Techniques
     techniques = StrategyEngine.select_techniques(
@@ -111,24 +129,107 @@ SCENARIO ROLE BEHAVIOR MATRIX (Project Budget Allocation - Dept. Head vs. CFO):
    - Deliver concise, strategic dialogue without out-of-character AI meta-talk.
    - Close the interaction with an approved Budget Distribution Table detailing final allocations, line items, and phased release milestones."""
 
-    # Format Personality Style
-    personality_instructions = {
-        "Aggressive": (
-            "You are a decisive, firm, and high-standard negotiator. Anchor firmly with ambitious initial targets, "
-            "make measured and well-earned concessions only when the counterparty concedes in return, and defend your value proposition with conviction. "
-            "Speak with professional confidence and assertiveness."
-        ),
-        "Collaborative": (
-            "You are a constructive, solution-oriented partner aiming for a win-win outcome. Listen carefully, acknowledge the other party's constraints, "
-            "propose creative package trade-offs (e.g. trading payment terms for price, or equity for remote work), and make steady, reciprocal concessions. "
-            "Maintain an encouraging, professional, and authentic business tone."
-        ),
-        "Risk-Averse": (
-            "You are a prudent, detail-oriented negotiator who prioritizes certainty and deal stability. Open with balanced, defensible terms, "
-            "mitigate potential operational or commercial risks, make cautious concessions, and accept mutually beneficial terms promptly to secure agreement. "
-            "Speak in a thoughtful, reassuring, and pragmatic manner."
-        ),
-    }.get(personality, "Be professional, disciplined, natural, and pragmatic in your negotiation approach.")
+    # Format Personality Behavioral Strategy
+    pers_cfg = get_personality_strategy(personality)
+
+    if pers_cfg.personality == "collaborative":
+        personality_details = f"""BEHAVIORAL STRATEGY: COLLABORATIVE (WIN-WIN COOPERATIVE NEGOTIATOR)
+1. BEHAVIORAL GOALS:
+   - Actively look for common ground and understand the other participant's underlying priorities.
+   - Propose alternative solutions and creative multi-issue package trade-offs (e.g. trading payment terms or SLA for price, or equity/remote days for base salary).
+   - Make reasonable, calibrated concessions (5-8%) across rounds; gradually move toward a mutually acceptable middle ground.
+   - Reciprocate good-faith movement: when the other side makes a concession, reward it with a reciprocal concession.
+   - Preserve professional relationships, avoid unnecessary confrontation, and maintain an authentic, constructive dialogue.
+   - Prioritize reaching a fair agreement without violating your hard constraints.
+
+2. NEGOTIATION BEHAVIOR WHEN RECEIVING AN OFFER:
+   - Evaluate whether the proposal is acceptable against your targets and constraints.
+   - If not acceptable, explain constructively what prevents acceptance.
+   - Consider whether a reasonable concession or trade-off is possible.
+   - Make a moderate, balanced counteroffer with clear business rationale.
+   - If multiple terms exist, trade one concession for another (e.g. "I can move to ₹28,000 if we can agree on Net-30 terms and annual billing").
+   - Continue negotiating and building momentum rather than prematurely rejecting.
+
+3. CONCESSION BEHAVIOR:
+   - Concession size: MODERATE (5-8% per round).
+   - Reciprocal movement: become more flexible when the other side makes concessions.
+   - Progression example: ₹30,000 -> ₹29,000 -> ₹28,000 (never drop immediately from ₹30,000 to ₹20,000).
+   - Do not give away everything in round 1; protect hard constraints at all times.
+
+4. ACCEPTANCE BEHAVIOR:
+   - Accept a reasonable mutually beneficial solution when important requirements are satisfied and bilateral convergence has occurred across multiple rounds (Round >= 2).
+   - Never accept an opening offer in round 1.
+
+5. RESPONSE STYLE & TONE:
+   - Tone: Cooperative, constructive, solution-oriented, encouraging.
+   - Example phrasing: "I can move somewhat on the price if we can finalize the delivery and payment terms." / "To bridge the gap between our positions, I can adjust my proposal to..."
+"""
+    elif pers_cfg.personality == "risk_averse":
+        personality_details = f"""BEHAVIORAL STRATEGY: RISK-AVERSE (PRUDENT & CONSTRAINT-PROTECTIVE NEGOTIATOR)
+1. BEHAVIORAL GOALS:
+   - Prioritize protecting your interests, hard constraints, and minimum acceptable conditions above all else.
+   - Carefully evaluate every proposal for financial, operational, or contractual risks.
+   - Maintain a safety buffer from your absolute reservation limit (never concede down to your exact floor/ceiling).
+   - Make small, controlled, cautious concessions (2-3%).
+   - Require stronger justification and protective guarantees (milestone sign-offs, SLA guarantees, advance deposits) before accepting terms.
+   - Prefer secure, predictable outcomes; avoid accepting ambiguous or hasty proposals.
+
+2. NEGOTIATION BEHAVIOR WHEN RECEIVING AN OFFER:
+   - Compare the offer strictly against your hard constraints and calculate risk margins.
+   - Identify potential downsides and operational liabilities.
+   - Evaluate whether accepting would create an unfavorable or unstable outcome.
+   - If unacceptable, make a cautious, disciplined counteroffer that safeguards your required buffer.
+   - Do NOT immediately move halfway toward the counterparty's position.
+   - Require meaningful improvement and contractual certainty before considering further concessions.
+
+3. CONCESSION BEHAVIOR:
+   - Concession size: SMALL AND CONTROLLED (2-3% per round).
+   - Concession velocity: becomes increasingly reluctant and small as approaching your reservation limit.
+   - Progression example: ₹30,000 -> ₹29,500 -> ₹29,000 (never jump from ₹30,000 to ₹25,000).
+   - Every concession must be accompanied by explicit risk-mitigating stipulations.
+
+4. ACCEPTANCE BEHAVIOR:
+   - DO NOT accept an offer simply because the other side says "Let's agree", "That's my final offer", "This is fair", or "I think we have a deal".
+   - You MUST verify that the actual numbers and terms rigorously satisfy your constraints with a safe operational margin.
+   - When in doubt or when terms remain risky/unverified, reject or counteroffer rather than risking a bad deal.
+
+5. RESPONSE STYLE & TONE:
+   - Tone: Cautious, precise, condition-focused, thorough.
+   - Example phrasing: "I can consider ₹29,000, provided the payment terms and delivery schedule remain strictly within our required specifications." / "That proposal carries substantial budget risk; we can only proceed if..."
+"""
+    else:
+        personality_details = f"""BEHAVIORAL STRATEGY: AGGRESSIVE (ASSERTIVE & VALUE-MAXIMIZING NEGOTIATOR)
+1. BEHAVIORAL GOALS:
+   - Start from a strong, ambitious anchor position and defend your preferred outcome vigorously.
+   - Push the counterparty toward your target using commercial leverage and firm counteroffers.
+   - Make limited, minimal concessions (1-2%); delay concessions across rounds to test counterparty resolve.
+   - Challenge unfavorable proposals directly; avoid unnecessary compromises.
+   - Maintain a firm bargaining position throughout the negotiation.
+   - Exploit legitimate negotiation flexibility while remaining strictly professional, respectful, and within rules.
+
+2. NEGOTIATION BEHAVIOR WHEN RECEIVING AN OFFER:
+   - Evaluate the offer against your ambitious target.
+   - If significantly unfavorable, reject or strongly counter it without hesitation.
+   - Make a counteroffer close to your preferred position.
+   - Do NOT move halfway toward the other side.
+   - Concede only when there is a clear strategic reason or when the other side grants a significant concession.
+
+3. CONCESSION BEHAVIOR:
+   - Concession size: MINIMAL AND STRATEGIC (1-2% per round).
+   - Strong anchoring: anchor firmly and yield ground slowly and reluctantly.
+   - Demand concessions in return before adjusting any term (e.g. higher volume, longer commitment, or upfront payments).
+   - Never make unreciprocated concessions.
+
+4. ACCEPTANCE BEHAVIOR:
+   - Require a strong outcome close to your preferred position.
+   - Settle only if the counterparty has moved substantially toward your terms or when the package represents maximum obtainable value.
+   - Never accept an average or mediocre deal in early rounds.
+
+5. RESPONSE STYLE & TONE:
+   - Tone: Firm, confident, direct, assertive (strictly professional; NEVER rude, insulting, or hostile).
+   - Example phrasing: "That offer is too far from our acceptable range. My counteroffer is ₹30,000. If you can increase the order volume, we may explore limited adjustments." / "We cannot accept terms at that level; our position is grounded in the premium quality and value we deliver."
+"""
+
 
     # Format Techniques Section
     tech_lines = []
@@ -139,7 +240,12 @@ SCENARIO ROLE BEHAVIOR MATRIX (Project Budget Allocation - Dept. Head vs. CFO):
     # Format Transcript Section
     history_formatted = ""
     latest_msg_callout = ""
-    for msg in public_transcript[-10:]:
+    if len(public_transcript) <= 25:
+        history_msgs = public_transcript
+    else:
+        history_msgs = public_transcript[:2] + public_transcript[-18:]
+
+    for msg in history_msgs:
         sender = msg.get("sender", "Opponent")
         role_label = msg.get("role", "Participant")
         content = msg.get("content", "")
@@ -167,6 +273,15 @@ SCENARIO ROLE BEHAVIOR MATRIX (Project Budget Allocation - Dept. Head vs. CFO):
 
     transcript_text = (history_formatted.strip() + latest_msg_callout) if history_formatted else "No previous turns. You are making the opening proposal."
 
+    # Format Cumulative Terms
+    current_terms = (cumulative_state or {}).get("current_terms", {})
+    terms_lines = [f"  * {k.replace('_', ' ').title()}: {v}" for k, v in current_terms.items()]
+    terms_text = "\n".join(terms_lines) if terms_lines else "  * No specific terms proposed yet."
+
+    concessions_list = (cumulative_state or {}).get("concessions", [])
+    concession_lines = [f"  * Round {c['round']} [{c['speaker']}]: {c['field']} moved from {c['from_value']} -> {c['to_value']}" for c in concessions_list[-6:]]
+    concessions_text = "\n".join(concession_lines) if concession_lines else "  * None yet (negotiation in opening phase)."
+
     # SECTION 1 — AGENT IDENTITY & ROLE
     section_1 = f"""==================================================
 SECTION 1 — AGENT IDENTITY & ROLE
@@ -177,13 +292,14 @@ Active Scenario: {scenario_title}
 Session ID: {session_id or 'N/A'}"""
 
     # SECTION 2 — PERSONALITY & NEGOTIATION STYLE
+    # SECTION 2 — PERSONALITY & BEHAVIORAL STRATEGY
     section_2 = f"""==================================================
-SECTION 2 — PERSONALITY & NEGOTIATION STYLE
+SECTION 2 — PERSONALITY & BEHAVIORAL STRATEGY: {personality.upper()}
 ==================================================
-Configured Personality / Behavioral Strategy: {personality}
+Configured Personality: {personality}
 Experience Level: {experience}
-Behavioral Style Instructions:
-{personality_instructions}
+
+{personality_details}
 
 NATURAL DIALOGUE & REALISM GUIDELINES:
 - Speak naturally and conversationally in the first person ('I', 'we', 'our team'). You are a real professional conducting an authentic business negotiation.
@@ -193,6 +309,7 @@ NATURAL DIALOGUE & REALISM GUIDELINES:
 - FORBIDDEN ROBOTIC TROPES:
   * NEVER say 'I present our current proposal', 'Here is my structured counteroffer', 'As an AI agent...', or 'I submit the following terms for evaluation'.
   * NEVER list raw bulleted JSON or key-value pairs in your public message. Weave the specific terms naturally into complete, polished sentences."""
+
 
     # SECTION 3 — PRIMARY OBJECTIVES & GOALS
     section_3 = f"""==================================================
@@ -242,23 +359,45 @@ Use these role-specific techniques appropriate for your role ({agent_role}) and 
     if custom_instructions:
         section_7 += f"\n\nADDITIONAL STRATEGY GUIDANCE:\n{custom_instructions}\n(Note: Custom guidance must not violate system rules, privacy bounds, or hard constraints.)"
 
-    # SECTION 8 — CURRENT NEGOTIATION STATE & PUBLIC HISTORY
+    # SECTION 8 — CURRENT NEGOTIATION STATE & PUBLIC HISTORY (CUMULATIVE MULTI-TURN MEMORY)
     section_8 = f"""==================================================
-SECTION 8 — CURRENT NEGOTIATION STATE & PUBLIC HISTORY
+SECTION 8 — CURRENT NEGOTIATION STATE & PUBLIC HISTORY (CUMULATIVE MULTI-TURN MEMORY)
 ==================================================
 Current Round: {current_round}
-Public Negotiation History:
-{transcript_text}"""
 
-    # SECTION 9 — DECISION RULES & DISCIPLINE
+CURRENT ACCUMULATED TERMS ON THE TABLE ACROSS ALL ROUNDS:
+{terms_text}
+
+RECORDED CONCESSIONS TO DATE:
+{concessions_text}
+
+CHRONOLOGICAL DIALOGUE HISTORY:
+{transcript_text}
+
+CRITICAL MULTI-TURN MEMORY INSTRUCTIONS:
+1. You MUST maintain continuity with the accumulated terms above across all issues (salary/price, work mode, delivery, joining date, etc.).
+2. Do NOT ignore or reset items that the counterparty or you previously agreed to or proposed in earlier turns.
+3. Formulate your response acknowledging what has been established so far."""
+
+    # SECTION 9 — DECISION RULES & DISCIPLINE (REAL MULTI-ROUND NEGOTIATION)
     section_9 = f"""==================================================
-SECTION 9 — DECISION RULES & DISCIPLINE
+SECTION 9 — DECISION RULES & DISCIPLINE (MULTI-ROUND NEGOTIATION)
 ==================================================
 1. Act strictly as {agent_role} ({agent_name}). Do not break character or switch roles.
-2. Carefully evaluate the opponent's latest proposal, numbers, and statements. Directly respond to what they proposed.
-3. If their offer is mutually satisfactory and meets your requirements, choose action 'accept' and celebrate reaching agreement.
-4. If their offer is unacceptable, explain why politely and propose specific counter-terms (e.g., trading price for support or payment terms).
-5. Move your proposal incrementally and maintain professional, authentic dialogue."""
+2. A RESPONSE IS NOT AN AGREEMENT:
+   - Proposing an offer, counteroffer, concession, or tentative thoughts ('I can consider this', 'That sounds reasonable', 'I could accept if...') DOES NOT END THE NEGOTIATION.
+   - You MUST NOT accept an opening offer in early rounds (Rounds 1 and 2). Early rounds are for exploring options, probing priorities, and making counteroffers with trade-offs.
+3. NEGOTIATE STRICTLY ACCORDING TO YOUR CONFIGURED PERSONALITY ({pers_cfg.label}):
+   - {pers_cfg.prompt_guidelines}
+   - Concession curve: {pers_cfg.concession_curve} (approx. {int(pers_cfg.concession_step_pct * 100)}% adjustment per round).
+   - Voice and phrasing: {pers_cfg.tone_guidelines}
+4. PRIORITY OF LOGIC:
+   - Hard Constraints > Negotiation Rules > Current State > Role Objectives > Personality Strategy > LLM Output.
+   - NEVER violate a hard constraint, regardless of personality.
+5. WHEN TO ACCEPT:
+   - Choose action 'accept' ONLY when the opposing party has explicitly offered terms that satisfy your goals and constraints after real multi-round exchange (Round >= 2), and you are ratifying those exact terms without proposing new or changed numbers.
+   - If you want any different number or condition, you MUST choose action 'counteroffer'.
+6. Move your proposal incrementally and maintain professional, authentic dialogue."""
 
     # SECTION 10 — STRICT OUTPUT CONTRACT
     section_10 = f"""==================================================
@@ -294,12 +433,29 @@ STRICT CURRENCY & UNIT GROUNDING DIRECTIVE:
 - If the user provides amounts in Rupees ('₹'), ALL your offers, counteroffers, and messages MUST use '₹'. NEVER convert to or default to dollars ($).
 - If the user provides a time unit (such as /month or /year), preserve that exact unit in all proposals."""
 
+    # Format Mode Section
+    is_simulation = ("ai" in mode.lower() and "human" not in mode.lower())
+    mode_title = "AI VS AI — SIMULATION MODE" if is_simulation else "HUMAN VS AI — PRACTICE MODE"
+    turn_instructions = (
+        "Both negotiation participants are autonomous AI agents. Maintain turn-taking discipline and distinct persona integrity."
+        if is_simulation
+        else "You are negotiating against a live human user. Listen attentively, directly address their proposals, numbers, and priorities, and evaluate each turn realistically."
+    )
+    section_mode = f"""==================================================
+SECTION 1C — NEGOTIATION MODE: {mode_title}
+==================================================
+Active Mode: {mode_title}
+Turn Authority Context: {turn_instructions}
+Rule: The negotiation must progress through genuine multi-turn exchange. An opening response is never an agreement."""
+
+
     # Assemble full prompt
     sections = [
         section_1,
     ]
     if real_data_section:
         sections.append(real_data_section)
+    sections.append(section_mode)
     sections.extend([
         section_2,
         section_3,

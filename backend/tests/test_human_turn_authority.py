@@ -13,25 +13,25 @@ from app.models.agent import AgentConfiguration
 @pytest.fixture
 def vendor_pricing_agents():
     return [
-        AgentConfiguration(id="a1", agent_template_id="vendor-sales", name="Sarah Chen", role="Enterprise Sales VP", avatar="SC", personality="Collaborative"),
-        AgentConfiguration(id="a2", agent_template_id="buyer-proc", name="Alex Rivera", role="Procurement Director", avatar="AR", personality="Collaborative"),
+        AgentConfiguration(id="a1", agent_template_id="vendor-sales", name="Vendor", role="Enterprise Sales VP", avatar="VN", personality="Collaborative"),
+        AgentConfiguration(id="a2", agent_template_id="buyer-proc", name="Buyer", role="Procurement Director", avatar="BY", personality="Collaborative"),
     ]
 
 
 @pytest.fixture
 def job_offer_agents():
     return [
-        AgentConfiguration(id="j1", agent_template_id="recruiter-hr", name="Marcus Brody", role="Lead HR Partner", avatar="MB", personality="Collaborative"),
-        AgentConfiguration(id="j2", agent_template_id="candidate-hr", name="Elena Rostova", role="Senior Developer Candidate", avatar="ER", personality="Collaborative"),
+        AgentConfiguration(id="j1", agent_template_id="recruiter-hr", name="Employer / Recruiter", role="Lead HR Partner", avatar="HR", personality="Collaborative"),
+        AgentConfiguration(id="j2", agent_template_id="candidate-hr", name="Candidate", role="Senior Developer Candidate", avatar="CD", personality="Collaborative"),
     ]
 
 
 @pytest.fixture
 def budget_allocation_agents():
     return [
-        AgentConfiguration(id="b1", agent_template_id="finance-mgr", name="David Vance", role="VP of Finance", avatar="DV", personality="Risk-Averse"),
-        AgentConfiguration(id="b2", agent_template_id="pm-lead", name="Priya Sharma", role="Engineering Director", avatar="PS", personality="Aggressive"),
-        AgentConfiguration(id="b3", agent_template_id="dept-head", name="Liam Connor", role="CMO / Marketing Lead", avatar="LC", personality="Collaborative"),
+        AgentConfiguration(id="b1", agent_template_id="finance-mgr", name="Finance Manager", role="VP of Finance", avatar="FM", personality="Risk-Averse"),
+        AgentConfiguration(id="b2", agent_template_id="pm-lead", name="Project Manager", role="Engineering Director", avatar="PM", personality="Aggressive"),
+        AgentConfiguration(id="b3", agent_template_id="dept-head", name="Department Head", role="CMO / Marketing Lead", avatar="DH", personality="Collaborative"),
     ]
 
 
@@ -87,24 +87,24 @@ def test_resolve_human_role_budget_allocation(budget_allocation_agents):
 def test_turn_sequence_vendor_pricing(vendor_pricing_agents):
     ordered = TurnResolver.get_ordered_agents("vendor-pricing", vendor_pricing_agents)
     assert len(ordered) == 2
-    assert ordered[0].name == "Sarah Chen"  # Vendor speaks first
-    assert ordered[1].name == "Alex Rivera"  # Buyer speaks second
+    assert ordered[0].name == "Vendor"  # Vendor speaks first
+    assert ordered[1].name == "Buyer"  # Buyer speaks second
 
 
 def test_turn_sequence_job_offer(job_offer_agents):
     ordered = TurnResolver.get_ordered_agents("job-offer", job_offer_agents)
     assert len(ordered) == 2
-    assert ordered[0].name == "Marcus Brody"  # Recruiter speaks first
-    assert ordered[1].name == "Elena Rostova"  # Candidate speaks second
+    assert ordered[0].name == "Employer / Recruiter"  # Recruiter speaks first
+    assert ordered[1].name == "Candidate"  # Candidate speaks second
 
 
 def test_turn_sequence_budget_allocation(budget_allocation_agents):
     ordered = TurnResolver.get_ordered_agents("budget-allocation", budget_allocation_agents)
     assert len(ordered) == 3
     # 1. Department Head -> 2. Project Manager -> 3. Finance Manager
-    assert ordered[0].name == "Liam Connor"
-    assert ordered[1].name == "Priya Sharma"
-    assert ordered[2].name == "David Vance"
+    assert ordered[0].name == "Department Head"
+    assert ordered[1].name == "Project Manager"
+    assert ordered[2].name == "Finance Manager"
 
 
 # ---------------------------------------------------------------------------

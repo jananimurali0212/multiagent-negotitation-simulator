@@ -23,9 +23,9 @@ PRESET_SCENARIOS_DATA = [
         "default_agents_data": [
             {
                 "agent_template_id": "buyer-crm",
-                "name": "Alex Rivera",
-                "role": "Procurement Director",
-                "avatar": "AR",
+                "name": "Buyer",
+                "role": "Procurement Director (Buyer)",
+                "avatar": "BY",
                 "personality": "Collaborative",
                 "experience": "High",
                 "negotiation_parameters": {
@@ -46,9 +46,9 @@ PRESET_SCENARIOS_DATA = [
             },
             {
                 "agent_template_id": "seller-crm",
-                "name": "Sarah Chen",
-                "role": "Enterprise Sales VP",
-                "avatar": "SC",
+                "name": "Vendor",
+                "role": "Enterprise Sales VP (Vendor)",
+                "avatar": "VN",
                 "personality": "Aggressive",
                 "experience": "Medium",
                 "negotiation_parameters": {
@@ -85,9 +85,9 @@ PRESET_SCENARIOS_DATA = [
         "default_agents_data": [
             {
                 "agent_template_id": "recruiter-hr",
-                "name": "Marcus Brody",
-                "role": "Lead HR Partner",
-                "avatar": "MB",
+                "name": "Employer / Recruiter",
+                "role": "Lead HR Partner (Recruiter)",
+                "avatar": "HR",
                 "personality": "Risk-Averse",
                 "experience": "High",
                 "negotiation_parameters": {
@@ -108,9 +108,9 @@ PRESET_SCENARIOS_DATA = [
             },
             {
                 "agent_template_id": "candidate-hr",
-                "name": "Elena Rostova",
-                "role": "Senior Developer Candidate",
-                "avatar": "ER",
+                "name": "Candidate",
+                "role": "Candidate (Senior Developer)",
+                "avatar": "CD",
                 "personality": "Collaborative",
                 "experience": "High",
                 "negotiation_parameters": {
@@ -147,9 +147,9 @@ PRESET_SCENARIOS_DATA = [
         "default_agents_data": [
             {
                 "agent_template_id": "dept-head",
-                "name": "Liam Connor",
-                "role": "CMO / Marketing Lead",
-                "avatar": "LC",
+                "name": "Department Head",
+                "role": "Department Head (Marketing)",
+                "avatar": "DH",
                 "personality": "Collaborative",
                 "experience": "Low",
                 "negotiation_parameters": {
@@ -168,9 +168,9 @@ PRESET_SCENARIOS_DATA = [
             },
             {
                 "agent_template_id": "pm-lead",
-                "name": "Priya Sharma",
-                "role": "Engineering Director",
-                "avatar": "PS",
+                "name": "Project Manager",
+                "role": "Project Manager (Engineering)",
+                "avatar": "PM",
                 "personality": "Aggressive",
                 "experience": "Medium",
                 "negotiation_parameters": {
@@ -189,9 +189,9 @@ PRESET_SCENARIOS_DATA = [
             },
             {
                 "agent_template_id": "finance-mgr",
-                "name": "David Vance",
-                "role": "VP of Finance",
-                "avatar": "DV",
+                "name": "Finance Manager",
+                "role": "Finance Manager (VP of Finance)",
+                "avatar": "FM",
                 "personality": "Risk-Averse",
                 "experience": "High",
                 "negotiation_parameters": {

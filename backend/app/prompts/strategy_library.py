@@ -179,6 +179,10 @@ class StrategyEngine:
         scenario_clean = scenario_id.lower().strip()
         role_clean = role.lower().strip()
 
+        personality_clean = personality.lower().strip()
+        personality_matches = []
+        general_matches = []
+
         for tech in TECHNIQUE_CATALOG:
             # Scenario match check
             if not any(s.lower() in scenario_clean for s in tech.suitable_scenarios):
@@ -193,9 +197,21 @@ class StrategyEngine:
             if not (tech.min_round <= current_round <= tech.max_round):
                 continue
 
-            selected.append(tech)
-            if len(selected) >= 3:
-                break
+            # Check personality match
+            if any(p.lower() in personality_clean or personality_clean in p.lower() for p in tech.suitable_personalities):
+                personality_matches.append(tech)
+            else:
+                general_matches.append(tech)
+
+        # Prioritize personality-specific techniques first
+        selected = personality_matches[:3]
+        if len(selected) < 3:
+            for g in general_matches:
+                if g not in selected:
+                    selected.append(g)
+                if len(selected) >= 3:
+                    break
+
 
         # Fallback general technique if no specific match found
         if not selected:

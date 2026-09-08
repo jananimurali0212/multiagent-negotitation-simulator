@@ -71,19 +71,19 @@ export const SimulationArenaScreen: React.FC = () => {
   useEffect(() => { isExecutingStepRef.current = isExecutingStep; }, [isExecutingStep]);
   useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
 
-  // Agent 0 (Buyer / Candidate / Finance Lead)
+  // Agent 0 (Buyer / Recruiter / Department Head)
   const agent0 = configuredAgents[0] || selectedScenario?.defaultAgents?.[0] || {
-    name: selectedScenario?.id === 'job-offer' ? 'Marcus Brody' : selectedScenario?.id === 'budget-allocation' ? 'David Vance' : 'Alex Rivera',
-    role: selectedScenario?.id === 'job-offer' ? 'Recruiter' : selectedScenario?.id === 'budget-allocation' ? 'VP of Finance' : 'Procurement Director',
-    avatar: selectedScenario?.id === 'job-offer' ? 'MB' : selectedScenario?.id === 'budget-allocation' ? 'DV' : 'AR',
+    name: selectedScenario?.id === 'job-offer' ? 'Employer / Recruiter' : selectedScenario?.id === 'budget-allocation' ? 'Department Head' : 'Buyer',
+    role: selectedScenario?.id === 'job-offer' ? 'Lead HR Partner (Recruiter)' : selectedScenario?.id === 'budget-allocation' ? 'Department Head' : 'Procurement Director (Buyer)',
+    avatar: selectedScenario?.id === 'job-offer' ? 'HR' : selectedScenario?.id === 'budget-allocation' ? 'DH' : 'BY',
     personality: 'Aggressive',
   };
 
-  // Agent 1 (Vendor / Recruiter / Department Lead)
+  // Agent 1 (Vendor / Candidate / Project Manager)
   const agent1 = configuredAgents[1] || selectedScenario?.defaultAgents?.[1] || {
-    name: selectedScenario?.id === 'job-offer' ? 'Elena Rostova' : selectedScenario?.id === 'budget-allocation' ? 'Priya Sharma' : 'Sarah Chen',
-    role: selectedScenario?.id === 'job-offer' ? 'Candidate' : selectedScenario?.id === 'budget-allocation' ? 'Engineering Director' : 'Vendor Director',
-    avatar: selectedScenario?.id === 'job-offer' ? 'ER' : selectedScenario?.id === 'budget-allocation' ? 'PS' : 'SC',
+    name: selectedScenario?.id === 'job-offer' ? 'Candidate' : selectedScenario?.id === 'budget-allocation' ? 'Project Manager' : 'Vendor',
+    role: selectedScenario?.id === 'job-offer' ? 'Candidate' : selectedScenario?.id === 'budget-allocation' ? 'Project Manager' : 'Enterprise Sales VP (Vendor)',
+    avatar: selectedScenario?.id === 'job-offer' ? 'CD' : selectedScenario?.id === 'budget-allocation' ? 'PM' : 'VN',
     personality: 'Collaborative',
   };
 
@@ -503,7 +503,7 @@ export const SimulationArenaScreen: React.FC = () => {
             <button
               onClick={() => {
                 if (sessionId) setSelectedReportId(sessionId);
-                navigate('/reports');
+                navigate(sessionId ? `/reports?session_id=${sessionId}` : '/reports');
               }}
               className="shrink-0 px-5 py-2.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-md transition-all hover:-translate-y-0.5 cursor-pointer border-none"
             >

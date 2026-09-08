@@ -129,7 +129,14 @@ export const OutcomeReportScreen: React.FC = () => {
     created_at: r.dateTime,
   }));
 
-  const activeReport: BackendOutcomeReport | undefined = activeReportDetail || allReportsList.find((r) => r.id === selectedReportId);
+  const targetId = selectedReportId || urlSessionId;
+  const activeReport: BackendOutcomeReport | undefined =
+    activeReportDetail ||
+    allReportsList.find(
+      (r) =>
+        (targetId && (r.id === targetId || r.session_id === targetId)) ||
+        (selectedReportId && (r.id === selectedReportId || r.session_id === selectedReportId))
+    );
 
   const handleExport = (format: 'JSON' | 'TXT', report: any) => {
     let content = '';
@@ -239,7 +246,17 @@ ${report.recommendations || 'N/A'}
     );
   };
 
-  if (allReportsList.length === 0 && !loading) {
+  // Loading state when looking up a specific report or initial list
+  if ((targetId && !activeReport) || (loading && !activeReport && allReportsList.length === 0)) {
+    return (
+      <div className="min-h-[400px] flex flex-col items-center justify-center p-8 space-y-3">
+        <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+        <p className="text-xs font-bold text-slate-500">Loading negotiation analytics report...</p>
+      </div>
+    );
+  }
+
+  if (allReportsList.length === 0 && !loading && !activeReport && !targetId) {
     return (
       <div className="pb-8 w-full">
         <div
@@ -330,7 +347,11 @@ ${report.recommendations || 'N/A'}
             <div className="space-y-1.5">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-[10px] font-extrabold uppercase tracking-wider text-blue-600 bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-100">
-                  {activeReport.mode === 'human-ai' ? 'Human vs AI Practice Session' : 'Autonomous AI vs AI Simulation'}
+                  {activeReport.mode === 'human-ai' ? 'Human vs AI Practice Session' : 'Autonomous Multi-Agent Simulation'}
+                </span>
+                <span className="text-[10px] font-extrabold uppercase tracking-wider px-2.5 py-0.5 rounded-full border flex items-center gap-1.5 bg-indigo-50 text-indigo-700 border-indigo-200">
+                  <Zap size={11} className="text-indigo-600" />
+                  Strategy Mode: {(activeReport.mode || 'Collaborative').replace(/_/g, ' ').replace(/-/g, ' ').toUpperCase()}
                 </span>
                 <span className="text-xs text-slate-400 font-semibold flex items-center gap-1">
                   <Calendar size={13} /> {activeReport.created_at ? new Date(activeReport.created_at).toLocaleString() : 'Recent'}
@@ -558,6 +579,47 @@ ${report.recommendations || 'N/A'}
           </section>
         )}
 
+        {/* SECTION: NEGOTIATION MODE & BEHAVIORAL STRATEGY ANALYSIS */}
+        {activeReport.scenario_analysis?.mode_strategy_analysis && (
+          <section className="bg-white/80 border border-white/90 rounded-[22px] p-6 shadow-sm backdrop-blur-xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <ShieldCheck size={18} className="text-indigo-600" />
+                <h2 className="text-sm font-extrabold text-[#14234D] uppercase tracking-wider">
+                  Negotiation Mode & Behavioral Strategy Analysis
+                </h2>
+              </div>
+              <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded-full border border-indigo-200 uppercase tracking-wider">
+                {activeReport.scenario_analysis.mode_strategy_analysis.mode_label || activeReport.mode} Strategy
+              </span>
+            </div>
+
+            <div className="p-4 rounded-xl bg-slate-50/90 border border-slate-200/80 space-y-1.5">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Core Strategy Objective:</span>
+                <span className="text-xs font-bold text-slate-800">
+                  {activeReport.scenario_analysis.mode_strategy_analysis.strategy_goal}
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {Object.entries(activeReport.scenario_analysis.mode_strategy_analysis)
+                .filter(([key]) => !['selected_mode', 'mode_label', 'rounds_observed', 'messages_analyzed', 'strategy_goal'].includes(key))
+                .map(([key, value]) => (
+                  <div key={key} className="p-3.5 bg-white/90 rounded-xl border border-slate-200/70 shadow-2xs space-y-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                      {key.replace(/_/g, ' ')}
+                    </span>
+                    <p className="text-xs font-medium text-slate-700 leading-relaxed">
+                      {String(value)}
+                    </p>
+                  </div>
+                ))}
+            </div>
+          </section>
+        )}
+
         {/* SECTION: DEADLOCK ANALYSIS & CONFLICT BREAKDOWN (ONLY WHEN DEADLOCK OCCURRED) */}
         {(activeReport.outcome === 'Deadlock' || activeReport.scenario_analysis?.deadlock_analysis) && (
           <section className="bg-red-50/90 border-2 border-red-200 rounded-[22px] p-6 shadow-sm backdrop-blur-xl space-y-4">
@@ -669,6 +731,35 @@ ${report.recommendations || 'N/A'}
                 {participants.length} Parties Involved
               </span>
             </div>
+
+            {/* ROLE BREAKDOWN CALLOUT */}
+            {activeReport.mode === 'human-ai' ? (
+              <div className="p-3 bg-blue-50/70 border border-blue-200/80 rounded-xl flex flex-wrap items-center justify-between gap-2 text-xs font-bold text-blue-900">
+                <div className="flex items-center gap-2">
+                  <User size={14} className="text-blue-600" />
+                  <span>Mode: Human vs AI</span>
+                  <span className="text-slate-300">|</span>
+                  <span>Human Role: {participants.find((p) => p.is_human)?.role || 'User'}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Bot size={14} className="text-orange-600" />
+                  <span>AI Role: {participants.filter((p) => !p.is_human).map((p) => p.role).join(', ') || 'AI Counterparty'}</span>
+                </div>
+              </div>
+            ) : (
+              <div className="p-3 bg-purple-50/70 border border-purple-200/80 rounded-xl flex flex-wrap items-center justify-between gap-2 text-xs font-bold text-purple-900">
+                <div className="flex items-center gap-2">
+                  <Bot size={14} className="text-purple-600" />
+                  <span>Mode: AI vs AI</span>
+                  <span className="text-slate-300">|</span>
+                  <span>Participant 1: {participants[0]?.role || 'Agent 1'} AI</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Bot size={14} className="text-indigo-600" />
+                  <span>Participant 2: {participants[1]?.role || 'Agent 2'} AI</span>
+                </div>
+              </div>
+            )}
 
             <div className="space-y-3">
               {participants.map((p, idx) => (

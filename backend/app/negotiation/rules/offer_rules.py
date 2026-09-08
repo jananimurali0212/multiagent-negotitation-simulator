@@ -25,17 +25,38 @@ class OfferRules:
 
     @classmethod
     def parse_numeric_value(cls, raw_val: Any) -> Optional[float]:
-        """Utility to extract clean float from strings like '$120,000 / year', '-$45/user/month', '15,000 shares'."""
+        """Utility to extract clean float from strings like '$120,000 / year', 'Rs.18,00,000/year', '18 LPA', '-$45/user/month', '15,000 shares'."""
         if raw_val is None:
             return None
         if isinstance(raw_val, (int, float)):
             return float(raw_val)
 
-        val_str = str(raw_val).replace(",", "").replace("$", "").replace("€", "").replace("£", "").strip()
-        match = re.search(r"[-+]?\d*\.\d+|[-+]?\d+", val_str)
+        s = str(raw_val).strip()
+        if not s:
+            return None
+
+        # Cleanly strip currency identifiers without treating trailing dot in 'Rs.' as a decimal point
+        s_clean = re.sub(r"(?i)\b(?:rs\.?|inr|usd|eur|gbp)\b|[₹$€£]", " ", s)
+
+        # Detect multipliers (k, lakh, lpa, crore, cr, million, m)
+        multiplier = 1.0
+        s_lower = s.lower()
+        if re.search(r"\b\d+(?:\.\d+)?\s*k\b", s_lower):
+            multiplier = 1000.0
+        elif "lakh" in s_lower or "lpa" in s_lower:
+            multiplier = 100000.0
+        elif "crore" in s_lower or re.search(r"\b\d+(?:\.\d+)?\s*cr\b", s_lower):
+            multiplier = 10000000.0
+        elif "million" in s_lower or re.search(r"\b\d+(?:\.\d+)?\s*m\b", s_lower):
+            multiplier = 1000000.0
+
+        # Remove commas and collapse space between sign and digits
+        s_no_commas = s_clean.replace(",", "").strip()
+        s_no_commas = re.sub(r"([+-])\s+", r"\1", s_no_commas)
+        match = re.search(r"[-+]?\d+(?:\.\d+)?", s_no_commas)
         if match:
             try:
-                return float(match.group())
+                return float(match.group()) * multiplier
             except ValueError:
                 return None
         return None

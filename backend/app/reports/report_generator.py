@@ -14,16 +14,39 @@ logger = logging.getLogger("backend.report_generator")
 class ReportGenerator:
     @staticmethod
     def _parse_num(val: Any) -> Optional[float]:
-        """Safely extracts numeric float value from string or number."""
+        """Safely extracts numeric float value from string or number, supporting Indian & Western formats, Rs., ₹, LPA."""
         if val is None:
             return None
         if isinstance(val, (int, float)):
             return float(val)
-        cleaned = re.sub(r"[^\d.]", "", str(val))
-        try:
-            return float(cleaned) if cleaned else None
-        except ValueError:
+        s = str(val).strip()
+        if not s:
             return None
+
+        # Cleanly strip currency identifiers without treating trailing dot in 'Rs.' as a decimal point
+        s_clean = re.sub(r"(?i)\b(?:rs\.?|inr|usd|eur|gbp)\b|[₹$€£]", " ", s)
+
+        # Detect multipliers (k, lakh, lpa, crore, cr, million, m)
+        multiplier = 1.0
+        s_lower = s.lower()
+        if re.search(r"\b\d+(?:\.\d+)?\s*k\b", s_lower):
+            multiplier = 1000.0
+        elif "lakh" in s_lower or "lpa" in s_lower:
+            multiplier = 100000.0
+        elif "crore" in s_lower or re.search(r"\b\d+(?:\.\d+)?\s*cr\b", s_lower):
+            multiplier = 10000000.0
+        elif "million" in s_lower or re.search(r"\b\d+(?:\.\d+)?\s*m\b", s_lower):
+            multiplier = 1000000.0
+
+        # Remove commas
+        s_no_commas = s_clean.replace(",", "").strip()
+        m = re.search(r"[-+]?\d+(?:\.\d+)?", s_no_commas)
+        if m:
+            try:
+                return float(m.group()) * multiplier
+            except ValueError:
+                return None
+        return None
 
     @staticmethod
     def _detect_currency(sc_data: Dict[str, Any], default: str = "") -> str:
@@ -66,6 +89,8 @@ class ReportGenerator:
         sc_data: Dict[str, Any],
         final_terms: Dict[str, Any],
         outcome: str,
+        messages: Optional[List[Any]] = None,
+        session: Optional[NegotiationSession] = None,
     ) -> Dict[str, Any]:
         """Constructs scenario-specific metrics and comparative analysis dictionary."""
         analysis: Dict[str, Any] = {}
@@ -75,11 +100,11 @@ class ReportGenerator:
             init_price = sc_data.get("initial_price") or sc_data.get("initial_vendor_price") or sc_data.get("current_vendor_price") or "Not available"
             target_price = sc_data.get("target_price") or "Not available"
             final_price = final_terms.get("price") or "Not finalized"
-            quantity = sc_data.get("quantity") or "Not specified"
+            quantity = sc_data.get("quantity") or final_terms.get("quantity") or "Not specified"
             budget = sc_data.get("budget_limit") or sc_data.get("maximum_budget") or "Not specified"
             delivery = final_terms.get("delivery") or sc_data.get("delivery_timeline") or sc_data.get("delivery_requirement") or "Standard"
             quality = final_terms.get("warranty") or sc_data.get("quality_requirements") or sc_data.get("quality_requirement") or "Standard"
-            payment_terms = final_terms.get("paymentTerms") or sc_data.get("payment_terms") or "Net-30"
+            payment_terms = final_terms.get("payment_terms") or final_terms.get("paymentTerms") or sc_data.get("payment_terms") or "Net-30"
 
             if not curr:
                 for p_val in [str(init_price), str(target_price), str(budget), str(final_price)]:
@@ -95,6 +120,43 @@ class ReportGenerator:
                 formatted_p = f"{curr}{final_num:,.2f}" if final_num != int(final_num) else f"{curr}{int(final_num):,}"
                 final_price = formatted_p
                 final_terms["price"] = formatted_p
+            else:
+                recovered_price = None
+                if messages:
+                    from app.negotiation.state_tracker import NegotiationStateTracker
+                    cum = NegotiationStateTracker.track_cumulative_state(
+                        session_id=getattr(session, "id", ""),
+                        scenario_id=scenario_id,
+                        mode=getattr(session, "mode", "human-ai"),
+                        initial_data=sc_data,
+                        messages=[{"sender": getattr(m, "sender", ""), "content": getattr(m, "content", ""), "offer_data": getattr(m, "offer_data", {}), "round": getattr(m, "round", 1)} for m in messages],
+                        participants=[],
+                        current_round=getattr(session, "current_round", 1),
+                        status=getattr(session, "status", outcome),
+                    )
+                    recovered_price = cum.get("agreed_terms", {}).get("price") or cum.get("current_terms", {}).get("price")
+                    for k in ["delivery", "warranty", "payment_terms", "quantity"]:
+                        if k in cum.get("current_terms", {}):
+                            final_terms[k] = cum["current_terms"][k]
+                    delivery = final_terms.get("delivery") or delivery
+                    quality = final_terms.get("warranty") or quality
+                    payment_terms = final_terms.get("payment_terms") or payment_terms
+                    quantity = final_terms.get("quantity") or quantity
+
+                if recovered_price:
+                    final_num = cls._parse_num(recovered_price)
+                    final_price = recovered_price
+                    final_terms["price"] = recovered_price
+                elif outcome in ["Agreement Reached", "Agreement"]:
+                    if init_num:
+                        final_num = float(init_num)
+                        final_price = f"{curr}{int(init_num):,}"
+                        final_terms["price"] = final_price
+                    else:
+                        final_price = "Agreed (Baseline)"
+                else:
+                    final_price = "Not finalized (Deadlock / Incomplete)"
+                    final_num = None
 
             concession_amt = (init_num - final_num) if (init_num and final_num) else 0.0
             savings_pct = f"{(concession_amt / init_num * 100):.1f}%" if (init_num and init_num > 0 and concession_amt > 0) else "0.0%"
@@ -119,10 +181,10 @@ class ReportGenerator:
             min_sal = sc_data.get("minimum_acceptable_salary") or "Not available"
             final_sal = final_terms.get("salary") or "Not finalized"
             benefits = final_terms.get("benefits") or sc_data.get("benefits") or "Standard package"
-            work_mode = final_terms.get("workMode") or sc_data.get("work_mode") or "Hybrid"
+            work_mode = final_terms.get("work_mode") or final_terms.get("workMode") or sc_data.get("work_mode") or "Hybrid"
             location = sc_data.get("location") or "Designated Office"
-            joining_date = final_terms.get("joiningDate") or sc_data.get("joining_date") or "Agreed start"
-            notice_period = sc_data.get("notice_period") or "Standard notice"
+            joining_date = final_terms.get("joining_date") or final_terms.get("joiningDate") or sc_data.get("joining_date") or "Agreed start"
+            notice_period = final_terms.get("notice_period") or sc_data.get("notice_period") or "Standard notice"
 
             if not curr:
                 for s_val in [str(init_sal), str(exp_sal), str(min_sal), str(final_sal)]:
@@ -149,24 +211,69 @@ class ReportGenerator:
             min_num = cls._parse_num(min_sal)
             final_num = cls._parse_num(final_sal) if final_sal != "Not finalized" else None
 
-            # Format or resolve real final salary grounded strictly in user input
-            if final_num is not None:
+            # Format or resolve real final salary grounded strictly in user input and conversation state
+            if final_num is not None and final_num > 0:
                 final_sal_formatted = f"{curr}{int(final_num):,}{unit_suffix}"
                 final_sal = final_sal_formatted
                 final_terms["salary"] = final_sal_formatted
-            elif outcome in ["Agreement Reached", "Agreement"]:
-                if init_num and exp_num:
-                    agreed_num = int((init_num + exp_num) / 2)
-                elif exp_num:
-                    agreed_num = int(exp_num)
-                elif init_num:
-                    agreed_num = int(init_num)
+            else:
+                recovered_sal = None
+                if messages:
+                    from app.negotiation.state_tracker import NegotiationStateTracker
+                    cum = NegotiationStateTracker.track_cumulative_state(
+                        session_id=getattr(session, "id", ""),
+                        scenario_id=scenario_id,
+                        mode=getattr(session, "mode", "human-ai"),
+                        initial_data=sc_data,
+                        messages=[{"sender": getattr(m, "sender", ""), "content": getattr(m, "content", ""), "offer_data": getattr(m, "offer_data", {}), "round": getattr(m, "round", 1)} for m in messages],
+                        participants=[],
+                        current_round=getattr(session, "current_round", 1),
+                        status=getattr(session, "status", outcome),
+                    )
+                    recovered_sal = cum.get("agreed_terms", {}).get("salary") or cum.get("current_terms", {}).get("salary")
+                    # If recovered salary is 0 or empty, check messages directly for numeric offers
+                    if not recovered_sal or cls._parse_num(recovered_sal) in [None, 0.0]:
+                        for m_obj in reversed(messages):
+                            m_text = getattr(m_obj, "content", "")
+                            m_data = getattr(m_obj, "offer_data", {}) or {}
+                            m_sal = m_data.get("salary")
+                            if m_sal and cls._parse_num(m_sal) not in [None, 0.0]:
+                                recovered_sal = m_sal
+                                break
+                            parsed_from_text = NegotiationStateTracker.parse_numeric(m_text)
+                            if parsed_from_text and parsed_from_text > 500:
+                                recovered_sal = f"{curr}{int(parsed_from_text):,}{unit_suffix}"
+                                break
+
+                    for k in ["work_mode", "joining_date", "benefits", "notice_period"]:
+                        if k in cum.get("current_terms", {}):
+                            final_terms[k] = cum["current_terms"][k]
+                    work_mode = final_terms.get("work_mode") or work_mode
+                    joining_date = final_terms.get("joining_date") or joining_date
+                    benefits = final_terms.get("benefits") or benefits
+                    notice_period = final_terms.get("notice_period") or notice_period
+
+                recov_num = cls._parse_num(recovered_sal) if recovered_sal else None
+                if recov_num and recov_num > 0:
+                    final_num = recov_num
+                    final_sal = f"{curr}{int(recov_num):,}{unit_suffix}"
+                    final_terms["salary"] = final_sal
+                elif outcome in ["Agreement Reached", "Agreement", "Partial Agreement"]:
+                    if init_num and init_num > 0:
+                        agreed_num = int(init_num)
+                        final_num = float(agreed_num)
+                        final_sal = f"{curr}{agreed_num:,}{unit_suffix}"
+                        final_terms["salary"] = final_sal
+                    elif exp_num and exp_num > 0:
+                        agreed_num = int(exp_num)
+                        final_num = float(agreed_num)
+                        final_sal = f"{curr}{agreed_num:,}{unit_suffix}"
+                        final_terms["salary"] = final_sal
+                    else:
+                        final_sal = "Agreed (Baseline)"
                 else:
-                    agreed_num = 35000
-                final_num = float(agreed_num)
-                final_sal_formatted = f"{curr}{agreed_num:,}{unit_suffix}"
-                final_sal = final_sal_formatted
-                final_terms["salary"] = final_sal_formatted
+                    final_sal = "Not finalized (Deadlock / Incomplete)"
+                    final_num = None
 
             sal_diff = (final_num - init_num) if (init_num and final_num) else 0.0
             diff_pct = f"+{(sal_diff / init_num * 100):.1f}%" if (init_num and init_num > 0 and sal_diff > 0) else ("0.0%" if sal_diff == 0 else f"{(sal_diff / init_num * 100):.1f}%")
@@ -291,9 +398,13 @@ class ReportGenerator:
                 })
 
         # Identify participants
+        from app.orchestration.turn_resolver import TurnResolver
+        human_ag = TurnResolver.resolve_human_agent(session.scenario_id, session.human_role, session.agents or []) if session.mode == "human-ai" else None
+        human_ag_id = getattr(human_ag, "id", None)
+
         participants = []
         for a in (session.agents or []):
-            is_human = (session.mode == "human-ai" and (session.human_role or "").lower() in a.role.lower())
+            is_human = (session.mode == "human-ai" and human_ag_id is not None and a.id == human_ag_id)
             participants.append({
                 "name": a.name,
                 "role": a.role,
@@ -341,6 +452,8 @@ class ReportGenerator:
             sc_data,
             final_terms,
             outcome,
+            messages=messages,
+            session=session,
         )
 
         # Build comprehensive deadlock analysis if impasse occurred
@@ -370,9 +483,84 @@ class ReportGenerator:
                 ),
             }
 
-        # Generate summary text
+        # Mode-specific strategic behavior analysis
+        mode_val = (session.mode or "collaborative").lower().replace("-", "_")
+        mode_analysis: Dict[str, Any] = {
+            "selected_mode": session.mode,
+            "mode_label": mode_val.replace("_", " ").title(),
+            "rounds_observed": rounds_count,
+            "messages_analyzed": len(messages),
+        }
+
+        # Analyze transcript signals
+        transcript_text = " ".join([m.content for m in messages]).lower()
+        has_trade_offs = any(w in transcript_text for w in ["trade", "flexibility", "package", "deliver", "payment", "net-", "hybrid", "remote", "benefits"])
+        has_risk_guards = any(w in transcript_text for w in ["risk", "buffer", "contingency", "safety", "margin", "warranty", "sla", "penalty", "ceiling", "floor"])
+        has_pressure = any(w in transcript_text for w in ["firm", "market", "demand", "uncompetitive", "benchmark", "leverage", "undervalue", "competing"])
+
+        if mode_val == "collaborative":
+            mode_analysis.update({
+                "strategy_goal": "Find a mutually beneficial win-win agreement through multi-variable trade-offs and creative package options.",
+                "cooperation_level": "High — Both negotiators actively sought mutual ground and creative term alignment.",
+                "trade_offs_explored": (
+                    "Negotiators actively tabled trade-offs across secondary dimensions (such as payment terms, warranty coverage, or schedule flexibility) to reach compromise on primary financial terms."
+                    if has_trade_offs else "The parties engaged constructively with balanced concession proposals."
+                ),
+                "mutual_benefit_assessment": "The negotiation balanced both parties' core priorities without unnecessary adversarial posturing.",
+                "concession_behavior": "Moderate, reciprocal concessions were made once justified by counterparty proposals, avoiding one-sided compromise.",
+                "win_win_outcome": (
+                    "Successfully achieved a balanced Pareto-efficient outcome reflecting joint value discovery."
+                    if is_agreement else "Collaborative exploration concluded when reservation boundaries could not be bridged without violating core limits."
+                ),
+            })
+        elif mode_val == "risk_averse":
+            mode_analysis.update({
+                "strategy_goal": "Protect against unfavorable or uncertain outcomes while guarding strict reservation limits and safety buffers.",
+                "constraint_protection": "Very High — Negotiators rigorously defended baseline reservation boundaries and operational buffers.",
+                "risk_avoidance": (
+                    "Cautious evaluation of all proposals; insisted on contractual safeguards, milestone reviews, and warranty protections."
+                    if has_risk_guards else "High caution demonstrated throughout round exchanges, avoiding speculative compromises."
+                ),
+                "conservative_concessions": "Concessions were tightly metered and incremental (under 3%), avoiding sudden moves that could erode margin.",
+                "safety_margins_preserved": "Maintained an operational safety buffer above absolute constraint floors throughout all rounds.",
+                "rejected_risky_proposals": "Proposals encroaching on mandatory reservation boundaries were either rejected or countered conservatively with explicit protective clauses.",
+            })
+        elif mode_val == "aggressive":
+            mode_analysis.update({
+                "strategy_goal": "Maximize participant advantage through assertive anchoring, competitive pressure, and concession resistance.",
+                "initial_demands": "Opened with firm, ambitious anchor positions to establish dominant negotiation reference points.",
+                "pressure_strategy": (
+                    "Applied strategic counter-pressure, emphasizing market alternatives, high demand, and delivery leverage."
+                    if has_pressure else "Emphasized leverage and challenged counterparty assumptions systematically."
+                ),
+                "strong_counteroffers": "Responded to unfavorable proposals with resolute counteroffers rather than early concessions.",
+                "concession_resistance": "Delayed concessions systematically, conceding minimal increments only when necessary to keep the dialogue active.",
+                "final_advantage": (
+                    "Secured highly favorable commercial terms while remaining within valid operational constraints."
+                    if is_agreement else "Stood firm on core value anchors, refusing to concede beyond strategic thresholds."
+                ),
+            })
+        else:
+            mode_analysis.update({
+                "strategy_goal": "Balanced strategic exchange between participants.",
+                "cooperation_level": "Adaptive",
+                "concession_behavior": "Dynamic responsiveness based on active participant inputs.",
+            })
+
+        scenario_analysis["mode_strategy_analysis"] = mode_analysis
+
+        if session.mode == "human-ai":
+            human_role_name = getattr(human_ag, "role", session.human_role or "Human Negotiator")
+            ai_roles = [a.role for a in (session.agents or []) if a.id != human_ag_id]
+            ai_role_str = ", ".join(ai_roles) if ai_roles else "AI Counterparty"
+            role_header = f"Mode: Human vs AI | Human Role: {human_role_name} | AI Role: {ai_role_str}. "
+        else:
+            participant_roles = [f"{a.role} AI" for a in (session.agents or [])]
+            parts_str = " vs ".join(participant_roles) if participant_roles else "AI Participants"
+            role_header = f"Mode: AI vs AI | Participants: {parts_str}. "
+
         summary = (
-            f"The negotiation session for '{scenario_title}' concluded with an outcome of '{outcome}' "
+            f"{role_header}The negotiation session for '{scenario_title}' concluded with an outcome of '{outcome}' "
             f"after {rounds_count} round(s) across {len(messages)} message exchange(s). "
         )
         if is_agreement and final_terms:

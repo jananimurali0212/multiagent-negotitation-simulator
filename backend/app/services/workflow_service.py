@@ -11,7 +11,7 @@ from app.core.exceptions import WorkflowValidationError
 logger = logging.getLogger("backend.workflow")
 
 ALLOWED_PERSONALITIES = {"Aggressive", "Collaborative", "Risk-Averse"}
-ALLOWED_MODES = {"ai-ai", "human-ai"}
+ALLOWED_MODES = {"collaborative", "risk_averse", "aggressive", "ai-ai", "human-ai"}
 ALLOWED_SCENARIOS = {"vendor-pricing", "job-offer", "budget-allocation"}
 
 

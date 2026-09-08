@@ -276,29 +276,29 @@ export const LoginSignupScreen: React.FC = () => {
             <g transform="translate(30, 60)">
               <rect x="0" y="0" width="80" height="40" rx="10" fill="#0F172A" stroke="#3B82F6" strokeWidth={authVisualStep === 0 ? 2 : 1} className="transition-all duration-300" />
               <circle cx="15" cy="20" r="3.5" fill="#3B82F6" />
-              <text x="26" y="18" fill="#FFFFFF" fontSize="7" fontWeight="bold">Alex Rivera</text>
-              <text x="26" y="28" fill="#64748B" fontSize="6">Buyer Role</text>
+              <text x="26" y="18" fill="#FFFFFF" fontSize="7" fontWeight="bold">Buyer Agent</text>
+              <text x="26" y="28" fill="#64748B" fontSize="6">Procurement</text>
             </g>
 
             <g transform="translate(290, 60)">
               <rect x="0" y="0" width="80" height="40" rx="10" fill="#0F172A" stroke="#C86D51" strokeWidth={authVisualStep === 1 ? 2 : 1} className="transition-all duration-300" />
               <circle cx="15" cy="20" r="3.5" fill="#C86D51" />
-              <text x="26" y="18" fill="#FFFFFF" fontSize="7" fontWeight="bold">Sarah Chen</text>
-              <text x="26" y="28" fill="#64748B" fontSize="6">Vendor Role</text>
+              <text x="26" y="18" fill="#FFFFFF" fontSize="7" fontWeight="bold">Vendor Agent</text>
+              <text x="26" y="28" fill="#64748B" fontSize="6">Enterprise Sales</text>
             </g>
 
             <g transform="translate(30, 230)">
               <rect x="0" y="0" width="80" height="40" rx="10" fill="#0F172A" stroke="#3B82F6" strokeWidth={authVisualStep === 2 ? 2 : 1} className="transition-all duration-300" />
               <circle cx="15" cy="20" r="3.5" fill="#3B82F6" />
-              <text x="26" y="18" fill="#FFFFFF" fontSize="7" fontWeight="bold">Marcus Brody</text>
-              <text x="26" y="28" fill="#64748B" fontSize="6">HR Recruiter</text>
+              <text x="26" y="18" fill="#FFFFFF" fontSize="7" fontWeight="bold">Employer Agent</text>
+              <text x="26" y="28" fill="#64748B" fontSize="6">Hiring Manager</text>
             </g>
 
             <g transform="translate(290, 230)">
               <rect x="0" y="0" width="80" height="40" rx="10" fill="#0F172A" stroke="#C86D51" strokeWidth={authVisualStep === 3 ? 2 : 1} className="transition-all duration-300" />
               <circle cx="15" cy="20" r="3.5" fill="#C86D51" />
-              <text x="26" y="18" fill="#FFFFFF" fontSize="7" fontWeight="bold">Elena Rostova</text>
-              <text x="26" y="28" fill="#64748B" fontSize="6">Finance VP</text>
+              <text x="26" y="18" fill="#FFFFFF" fontSize="7" fontWeight="bold">Candidate Agent</text>
+              <text x="26" y="28" fill="#64748B" fontSize="6">Senior Developer</text>
             </g>
           </svg>
         </div>

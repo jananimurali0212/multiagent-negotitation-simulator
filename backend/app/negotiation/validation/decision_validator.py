@@ -146,31 +146,38 @@ class DecisionValidator:
                 if any(w in role_clean for w in ["sales", "vendor", "seller"]):
                     min_p = ConstraintRules._extract_param_value(agent, ["minprice", "min_price", "targetprice", "target_price"])
                     raw_str = str(params.get("minPrice") or params.get("targetPrice") or "")
-                    if min_p is not None:
+                    if min_p is not None and min_p > 0:
                         formatted_p = f"{min_p:,.2f}" if min_p != int(min_p) else f"{int(min_p):,}"
                         suffix = raw_str[raw_str.find("/"):].strip() if "/" in raw_str else ""
                         repaired_offer["price"] = f"{curr}{formatted_p}{suffix}"
                 else:
                     max_b = ConstraintRules._extract_param_value(agent, ["maxbudget", "max_budget", "targetprice", "target_price"])
                     raw_str = str(params.get("maxBudget") or params.get("targetPrice") or "")
-                    if max_b is not None:
+                    if max_b is not None and max_b > 0:
                         formatted_b = f"{max_b:,.2f}" if max_b != int(max_b) else f"{int(max_b):,}"
                         suffix = raw_str[raw_str.find("/"):].strip() if "/" in raw_str else ""
                         repaired_offer["price"] = f"{curr}{formatted_b}{suffix}"
 
             elif state.scenario_id == "job-offer":
+                raw_str = str(params.get("maxSalary") or params.get("targetSalary") or params.get("minSalary") or "")
+                suffix = ""
+                if "/" in raw_str:
+                    suffix = raw_str[raw_str.find("/"):].strip()
+                elif "lpa" in raw_str.lower():
+                    suffix = " LPA"
+
                 if any(w in role_clean for w in ["recruiter", "hr"]):
                     max_s = ConstraintRules._extract_param_value(agent, ["maxsalary", "max_salary", "targetsalary", "target_salary"])
-                    if max_s is not None:
-                        repaired_offer["salary"] = f"{curr}{int(max_s):,}"
+                    if max_s is not None and max_s > 0:
+                        repaired_offer["salary"] = f"{curr}{int(max_s):,}{suffix}"
                 else:
                     min_s = ConstraintRules._extract_param_value(agent, ["minsalary", "min_salary", "targetsalary", "target_salary"])
-                    if min_s is not None:
-                        repaired_offer["salary"] = f"{curr}{int(min_s):,}"
+                    if min_s is not None and min_s > 0:
+                        repaired_offer["salary"] = f"{curr}{int(min_s):,}{suffix}"
 
             elif state.scenario_id == "budget-allocation":
                 pool_val = ConstraintRules._extract_param_value(agent, ["totalpool", "total_pool", "totalbudget", "total_budget", "maxallocation", "max_allocation"])
-                if pool_val is not None:
+                if pool_val is not None and pool_val > 0:
                     repaired_offer["totalBudget"] = f"{curr}{int(pool_val):,}"
 
             repaired = AgentDecision(

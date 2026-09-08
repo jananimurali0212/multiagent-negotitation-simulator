@@ -34,14 +34,14 @@ async def get_report_by_id(
     """Retrieves a single outcome report by report ID or session ID."""
     stmt = select(OutcomeReport).where(
         or_(OutcomeReport.id == report_id, OutcomeReport.session_id == report_id)
-    )
+    ).order_by(OutcomeReport.created_at.desc())
     result = await db.execute(stmt)
-    report = result.scalar_one_or_none()
+    report = result.scalars().first()
 
     if not report:
         # Check if report_id matches a valid NegotiationSession and generate on demand
         from app.models.negotiation import NegotiationSession
-        from app.reports.report_generator import ReportGenerator
+        from app.orchestration.orchestrator import OrchestratorService
         from app.api.routes.negotiations import _load_full_session
 
         session_stmt = select(NegotiationSession).where(NegotiationSession.id == report_id)
@@ -55,15 +55,24 @@ async def get_report_by_id(
                 else ("Deadlock" if session.status == "deadlock" else "No Agreement / Deadlock")
             )
             full_session = await _load_full_session(session.id, db)
-            report = await ReportGenerator.generate_and_save_report(full_session, outcome, db)
+            report = await OrchestratorService.finalize_negotiation(full_session, outcome, db)
         else:
             raise ResourceNotFoundError("OutcomeReport", report_id)
 
     if report.user_id != current_user.id:
         raise ForbiddenError("You do not have permission to access this negotiation report.")
 
-    # Dynamically normalize any currency mismatch from historical sessions
     from app.reports.report_generator import ReportGenerator
+
+    # Auto-heal any historical reports that suffered from zero salary bug
+    if report.scenario_id == "job-offer":
+        sal_val = (report.scenario_analysis or {}).get("final_salary", "")
+        if (sal_val in ["₹0", "$0", "0", "0.0", "₹0 / year", "$0 / year"] or (sal_val.strip() in ["₹0", "$0"])) and report.outcome in ["Agreement Reached", "Agreement", "Partial Agreement"]:
+            from app.api.routes.negotiations import _load_full_session
+            session = await _load_full_session(report.session_id, db)
+            report = await ReportGenerator.generate_and_save_report(session, report.outcome, db)
+
+    # Dynamically normalize any currency mismatch from historical sessions
     sc_curr = ReportGenerator._detect_currency(report.initial_data or {}, default="")
     if sc_curr and sc_curr != "$":
         modified = False

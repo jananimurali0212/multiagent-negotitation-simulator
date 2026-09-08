@@ -1,1019 +1,662 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/useStore';
-
 import {
   ArrowLeft,
   ArrowRight,
   Check,
-  CircleUserRound,
-  Lightbulb,
+  CheckCircle2,
+  Handshake,
+  ShieldCheck,
+  Zap,
   ShoppingCart,
+  CircleUserRound,
   UsersRound,
+  Bot,
+  User,
+  Scale,
+  Sparkles,
 } from 'lucide-react';
 
 /* =========================================================
-   DESIGN TOKENS
+   DESIGN TOKENS & PALETTE
 ========================================================= */
-
 const COLORS = {
   primary: '#1E2230',
   secondary: '#C86D51',
   accent: '#3B82F6',
-  background: '#EEF1F8',
-  backgroundSoft: '#F4F6FB',
   surface: '#FFFFFF',
   text: '#0F172A',
   muted: '#64748B',
+  collaborative: '#10B981',
+  collaborativeSoft: '#ECFDF5',
+  collaborativeBorder: '#6EE7B7',
+  riskAverse: '#3B82F6',
+  riskAverseSoft: '#EFF6FF',
+  riskAverseBorder: '#93C5FD',
+  aggressive: '#E11D48',
+  aggressiveSoft: '#FFF1F2',
+  aggressiveBorder: '#FDA4AF',
 };
 
-/* =========================================================
-   TYPES
-========================================================= */
+type NegotiationPersonality = 'Collaborative' | 'Risk-Averse' | 'Aggressive';
 
-type NegotiationMode = 'ai-ai' | 'human-ai';
+interface PersonalityDefinition {
+  id: NegotiationPersonality;
+  name: string;
+  tagline: string;
+  accent: string;
+  soft: string;
+  border: string;
+  icon: React.ReactNode;
+  description: string;
+  metrics: {
+    cooperation: string;
+    concessionRate: string;
+    flexibility: string;
+    pressure: string;
+  };
+  highlights: string[];
+}
 
-/* =========================================================
-   AI VS AI VISUAL
-========================================================= */
-
-const AiVsAiVisual: React.FC = () => {
-  return (
-    <div className="relative flex h-[112px] items-center justify-center">
-      {/* Ambient glows */}
-      <div className="absolute left-[14%] h-[94px] w-[94px] rounded-full bg-[#3B82F6]/8 blur-[5px]" />
-
-      <div className="absolute right-[14%] h-[94px] w-[94px] rounded-full bg-[#C86D51]/8 blur-[5px]" />
-
-      {/* Left AI */}
-      <div className="absolute left-[15%] top-[20px] flex h-[82px] w-[82px] items-center justify-center rounded-full border border-[#3B82F6]/15 bg-white/60 shadow-[0_8px_24px_rgba(59,130,246,0.08)] backdrop-blur-md">
-        <div className="relative flex h-[45px] w-[54px] items-center justify-center rounded-[15px] border-2 border-[#3B82F6] bg-[#EEF5FF]">
-          <span className="absolute left-[10px] top-[14px] h-[6px] w-[6px] rounded-full bg-[#3B82F6]" />
-          <span className="absolute right-[10px] top-[14px] h-[6px] w-[6px] rounded-full bg-[#3B82F6]" />
-
-          <span className="absolute -top-[9px] h-[9px] w-[2px] bg-[#3B82F6]" />
-          <span className="absolute -top-[12px] h-[5px] w-[5px] rounded-full bg-[#3B82F6]" />
-
-          <span className="absolute -left-[6px] top-[14px] h-[15px] w-[4px] rounded-full bg-[#3B82F6]" />
-          <span className="absolute -right-[6px] top-[14px] h-[15px] w-[4px] rounded-full bg-[#3B82F6]" />
-
-          <span className="absolute bottom-[9px] h-[2px] w-[16px] rounded-full bg-[#3B82F6]" />
-        </div>
-      </div>
-
-      {/* VS */}
-      <div className="relative z-10 flex h-[40px] w-[40px] items-center justify-center rounded-full border border-slate-200 bg-white/85 text-[13px] font-bold text-[#1E2230] shadow-sm backdrop-blur-md">
-        VS
-      </div>
-
-      {/* Right AI */}
-      <div className="absolute right-[15%] top-[20px] flex h-[82px] w-[82px] items-center justify-center rounded-full border border-[#C86D51]/15 bg-white/60 shadow-[0_8px_24px_rgba(200,109,81,0.08)] backdrop-blur-md">
-        <div className="relative flex h-[45px] w-[54px] items-center justify-center rounded-[15px] border-2 border-[#C86D51] bg-[#FFF3EE]">
-          <span className="absolute left-[10px] top-[14px] h-[6px] w-[6px] rounded-full bg-[#C86D51]" />
-          <span className="absolute right-[10px] top-[14px] h-[6px] w-[6px] rounded-full bg-[#C86D51]" />
-
-          <span className="absolute -top-[9px] h-[9px] w-[2px] bg-[#C86D51]" />
-          <span className="absolute -top-[12px] h-[5px] w-[5px] rounded-full bg-[#C86D51]" />
-
-          <span className="absolute -left-[6px] top-[14px] h-[15px] w-[4px] rounded-full bg-[#C86D51]" />
-          <span className="absolute -right-[6px] top-[14px] h-[15px] w-[4px] rounded-full bg-[#C86D51]" />
-
-          <span className="absolute bottom-[9px] h-[2px] w-[16px] rounded-full bg-[#C86D51]" />
-        </div>
-      </div>
-
-      {/* Connection */}
-      <div className="absolute left-[30%] right-[30%] top-[58px] h-px border-t border-dashed border-slate-300">
-        <span className="absolute left-1/2 top-[-3px] h-[6px] w-[6px] -translate-x-1/2 rounded-full bg-[#3B82F6]" />
-      </div>
-
-      {/* Labels */}
-      <div className="absolute left-[17%] top-[95px] rounded-full bg-[#EEF5FF] px-3 py-1 text-[9px] font-semibold text-[#3B82F6]">
-        AI
-      </div>
-
-      <div className="absolute right-[17%] top-[95px] rounded-full bg-[#FFF1EC] px-3 py-1 text-[9px] font-semibold text-[#C86D51]">
-        AI
-      </div>
-    </div>
-  );
-};
-
-/* =========================================================
-   HUMAN VS AI VISUAL
-========================================================= */
-
-const HumanVsAiVisual: React.FC = () => {
-  return (
-    <div className="relative flex h-[112px] items-center justify-center">
-      <div className="absolute left-[14%] h-[94px] w-[94px] rounded-full bg-[#3B82F6]/8 blur-[5px]" />
-
-      <div className="absolute right-[14%] h-[94px] w-[94px] rounded-full bg-[#C86D51]/8 blur-[5px]" />
-
-      {/* Human */}
-      <div className="absolute left-[14%] top-[10px] flex h-[84px] w-[84px] items-center justify-center rounded-full border border-[#3B82F6]/12 bg-white/65 shadow-[0_8px_24px_rgba(59,130,246,0.08)]">
-        <div className="relative h-[53px] w-[53px]">
-          <div className="absolute left-[10px] top-[1px] h-[31px] w-[31px] rounded-full bg-[#1E2230]" />
-          <div className="absolute left-[7px] top-[29px] h-[19px] w-[37px] rounded-t-[20px] rounded-b-[10px] bg-[#3B82F6]" />
-          <div className="absolute left-[15px] top-[8px] h-[11px] w-[14px] rounded-full bg-[#F1B995]" />
-        </div>
-      </div>
-
-      {/* VS */}
-      <div className="relative z-10 flex h-[40px] w-[40px] items-center justify-center rounded-full border border-slate-200 bg-white/85 text-[13px] font-bold text-[#1E2230] shadow-sm backdrop-blur-md">
-        VS
-      </div>
-
-      {/* AI */}
-      <div className="absolute right-[14%] top-[20px] flex h-[78px] w-[78px] items-center justify-center rounded-full border border-[#C86D51]/15 bg-white/60 shadow-[0_8px_24px_rgba(200,109,81,0.08)] backdrop-blur-md">
-        <div className="relative flex h-[43px] w-[52px] items-center justify-center rounded-[14px] border-2 border-[#C86D51] bg-[#FFF3EE]">
-          <span className="absolute left-[10px] top-[14px] h-[6px] w-[6px] rounded-full bg-[#C86D51]" />
-          <span className="absolute right-[10px] top-[14px] h-[6px] w-[6px] rounded-full bg-[#C86D51]" />
-          <span className="absolute bottom-[8px] h-[2px] w-[15px] rounded-full bg-[#C86D51]" />
-        </div>
-      </div>
-
-      {/* Labels */}
-      <div className="absolute left-[15%] top-[95px] rounded-full bg-[#EEF5FF] px-3 py-1 text-[9px] font-semibold text-[#3B82F6]">
-        YOU
-      </div>
-
-      <div className="absolute right-[15%] top-[95px] rounded-full bg-[#FFF1EC] px-3 py-1 text-[9px] font-semibold text-[#C86D51]">
-        AI
-      </div>
-
-      <div className="absolute left-[30%] right-[30%] top-[58px] h-px border-t border-dashed border-slate-300" />
-    </div>
-  );
-};
-
-/* =========================================================
-   MAIN MODE SELECTION SCREEN
-   NOTE:
-   - No navbar here
-   - No progress bar here
-   - Both already exist in the shared application layout
-========================================================= */
+const PERSONALITIES: PersonalityDefinition[] = [
+  {
+    id: 'Collaborative',
+    name: 'Collaborative',
+    tagline: 'Win-Win & Creative Trade-Offs',
+    accent: COLORS.collaborative,
+    soft: COLORS.collaborativeSoft,
+    border: COLORS.collaborativeBorder,
+    icon: <Handshake size={24} className="text-[#10B981]" />,
+    description:
+      'Proactively proposes multi-variable trade-offs (price, payment terms, delivery, remote work), makes balanced reciprocal concessions, and seeks joint value creation.',
+    metrics: {
+      cooperation: 'High',
+      concessionRate: 'Moderate (~7%)',
+      flexibility: 'High',
+      pressure: 'Low',
+    },
+    highlights: [
+      'Tables multi-variable package trade-offs',
+      'Exchanges reciprocal concessions when justified',
+      'Actively prevents premature deadlock',
+    ],
+  },
+  {
+    id: 'Risk-Averse',
+    name: 'Risk-Averse',
+    tagline: 'Safety Buffers & Constraint Guard',
+    accent: COLORS.riskAverse,
+    soft: COLORS.riskAverseSoft,
+    border: COLORS.riskAverseBorder,
+    icon: <ShieldCheck size={24} className="text-[#3B82F6]" />,
+    description:
+      'Prioritizes baseline reservation requirements, makes cautious concessions, guards safety margins, and avoids unbuffered or speculative compromises.',
+    metrics: {
+      cooperation: 'Moderate',
+      concessionRate: 'Low (~2.5%)',
+      flexibility: 'Low / Moderate',
+      pressure: 'Cautious',
+    },
+    highlights: [
+      'Preserves safety buffer above minimum floors',
+      'Makes small, tightly metered concessions',
+      'Demands strict contractual guarantees',
+    ],
+  },
+  {
+    id: 'Aggressive',
+    name: 'Aggressive',
+    tagline: 'Tactical Pressure & Hard Anchors',
+    accent: COLORS.aggressive,
+    soft: COLORS.aggressiveSoft,
+    border: COLORS.aggressiveBorder,
+    icon: <Zap size={24} className="text-[#E11D48]" />,
+    description:
+      'Opens with bold anchor positions, applies counter-pressure emphasizing market leverage, delays concessions systematically, and defends value vigorously.',
+    metrics: {
+      cooperation: 'Selective',
+      concessionRate: 'Minimal (~1.2%)',
+      flexibility: 'Low',
+      pressure: 'High',
+    },
+    highlights: [
+      'Opens with ambitious anchor positions',
+      'Delays downward concessions systematically',
+      'Accepts only when terms are decisively favorable',
+    ],
+  },
+];
 
 export const ModeSelectionScreen: React.FC = () => {
   const navigate = useNavigate();
+  const {
+    selectedScenario,
+    selectedMode,
+    setSelectedMode,
+    humanRole,
+    setHumanRole,
+    personality,
+    setPersonality,
+    updateScenarioData,
+  } = useStore();
 
-  const { selectedScenario, selectedMode, setSelectedMode } = useStore();
+  const scenarioId = selectedScenario?.id || 'vendor-pricing';
 
-  React.useEffect(() => {
-    if (!selectedMode) {
-      const stored = localStorage.getItem('negotiation-mode');
-      if (stored === 'ai-ai' || stored === 'human-ai') {
-        setSelectedMode(stored as any);
-      }
+  // 1. Negotiation Mode: strictly 'ai-ai' or 'human-ai'
+  const [currentMode, setCurrentMode] = useState<'ai-ai' | 'human-ai'>(
+    selectedMode === 'ai-ai' ? 'ai-ai' : 'human-ai'
+  );
+
+  // 2. Scenario-specific human role options
+  const roleOptions = useMemo(() => {
+    switch (scenarioId) {
+      case 'vendor-pricing':
+        return [
+          {
+            id: 'buyer',
+            label: 'Buyer',
+            opposingLabel: 'Vendor',
+            description: 'You negotiate licensing price discounts, SLA warranty, and payment terms against the Vendor AI.',
+          },
+          {
+            id: 'vendor',
+            label: 'Vendor',
+            opposingLabel: 'Buyer',
+            description: 'You defend product margins, contract duration, and delivery terms against the Buyer AI.',
+          },
+        ];
+      case 'job-offer':
+        return [
+          {
+            id: 'candidate',
+            label: 'Candidate',
+            opposingLabel: 'Employer / Recruiter',
+            description: 'You negotiate base salary, stock options, and remote work flexibility with the Employer AI.',
+          },
+          {
+            id: 'recruiter',
+            label: 'Employer / Recruiter',
+            opposingLabel: 'Candidate',
+            description: 'You manage departmental compensation caps and hiring guidelines with the Candidate AI.',
+          },
+        ];
+      case 'budget-allocation':
+        return [
+          {
+            id: 'project-manager',
+            label: 'Project Manager',
+            opposingLabel: 'Finance Manager & Dept Head',
+            description: 'You advocate for core engineering prototypes, infrastructure, and technical headcount.',
+          },
+          {
+            id: 'finance-director',
+            label: 'Finance Manager',
+            opposingLabel: 'Project Manager & Dept Head',
+            description: 'You enforce corporate fiscal caps, emergency reserves, and measurable ROI milestones.',
+          },
+          {
+            id: 'department-head',
+            label: 'Department Head',
+            opposingLabel: 'Finance Manager & Project Manager',
+            description: 'You champion user acquisition, commercial launch, and marketing campaign funding.',
+          },
+        ];
+      default:
+        return [
+          { id: 'buyer', label: 'Participant 1', opposingLabel: 'Participant 2', description: 'Primary Negotiator' },
+          { id: 'vendor', label: 'Participant 2', opposingLabel: 'Participant 1', description: 'Counterparty' },
+        ];
     }
-  }, [selectedMode, setSelectedMode]);
+  }, [scenarioId]);
 
-  /* =========================================================
-     SELECTED SCENARIO INFORMATION
-  ========================================================= */
+  // Selected Human Role state
+  const [selectedHumanRole, setSelectedHumanRole] = useState<string>(() => {
+    if (humanRole && roleOptions.some((r) => r.id === humanRole)) {
+      return humanRole;
+    }
+    return roleOptions[0]?.id || 'buyer';
+  });
+
+  // Selected Personality state
+  const [selectedPersonality, setSelectedPersonality] = useState<NegotiationPersonality>(
+    personality || 'Collaborative'
+  );
+
+  useEffect(() => {
+    if (!roleOptions.some((r) => r.id === selectedHumanRole)) {
+      setSelectedHumanRole(roleOptions[0]?.id || 'buyer');
+    }
+  }, [roleOptions, selectedHumanRole]);
+
+  // Matchup details for the active human role
+  const activeRoleConfig = useMemo(() => {
+    return roleOptions.find((r) => r.id === selectedHumanRole) || roleOptions[0];
+  }, [roleOptions, selectedHumanRole]);
 
   const scenarioInfo = useMemo(() => {
     if (!selectedScenario) {
       return {
-        title: 'No Scenario Selected',
-        tag: 'Select a scenario first',
-        icon: <ShoppingCart size={24} />,
-        accent: COLORS.accent,
-        soft: '#EAF2FF',
+        title: 'Vendor Pricing Negotiation',
+        tag: 'Buyer vs Vendor',
+        icon: <ShoppingCart size={20} />,
       };
     }
-
     if (selectedScenario.id === 'vendor-pricing') {
       return {
         title: 'Vendor Pricing Negotiation',
         tag: 'Buyer vs Vendor',
-        icon: <ShoppingCart size={24} />,
-        accent: COLORS.secondary,
-        soft: '#FFF0EA',
+        icon: <ShoppingCart size={20} />,
       };
     }
-
     if (selectedScenario.id === 'job-offer') {
       return {
         title: 'Job Offer Negotiation',
-        tag: 'Candidate vs Hiring Manager',
-        icon: <CircleUserRound size={24} />,
-        accent: COLORS.accent,
-        soft: '#EAF2FF',
+        tag: 'Candidate vs Employer / Recruiter',
+        icon: <CircleUserRound size={20} />,
       };
     }
-
     return {
       title: 'Project Budget Allocation',
-      tag: 'Dept. Heads vs Finance',
-      icon: <UsersRound size={24} />,
-      accent: '#6C5CE7',
-      soft: '#F1EEFF',
+      tag: 'Project Manager vs Finance vs Dept Head',
+      icon: <UsersRound size={20} />,
     };
   }, [selectedScenario]);
 
-  /* =========================================================
-     MODE SELECTION
-  ========================================================= */
-
-  const handleSelectMode = (
-    mode: NegotiationMode
-  ) => {
-    setSelectedMode(mode);
-
-    localStorage.setItem(
-      'negotiation-mode',
-      mode
-    );
-
-    /*
-      IMPORTANT:
-      If your Zustand store already contains something like:
-
-      selectNegotiationMode(mode)
-
-      call it here as well.
-
-      The centralized workflow state should remain
-      the source of truth for route guards.
-    */
-  };
-
-  /* =========================================================
-     CONTINUE
-  ========================================================= */
-
   const handleContinue = () => {
-    /*
-      Strict workflow:
-      Scenario must exist.
-    */
-
-    if (!selectedScenario) {
-      navigate('/setup/scenario');
-      return;
+    setSelectedMode(currentMode);
+    if (currentMode === 'human-ai') {
+      setHumanRole(selectedHumanRole);
+    } else {
+      setHumanRole(null);
     }
-
-    /*
-      Mode must be selected.
-    */
-
-    if (!selectedMode) {
-      return;
-    }
-
-    /*
-      Continue to Real Scenario Data Input.
-    */
-
+    setPersonality(selectedPersonality);
+    updateScenarioData({
+      personality: selectedPersonality,
+      mode: currentMode,
+      human_role: currentMode === 'human-ai' ? selectedHumanRole : undefined,
+    });
+    localStorage.setItem('negotiation-mode', selectedPersonality.toLowerCase());
     navigate('/setup/scenario-data');
   };
-
-  /* =========================================================
-     BACK
-  ========================================================= */
 
   const handleBack = () => {
     navigate('/setup/scenario');
   };
 
   return (
-    <div
-      className="
-        relative
-        py-5
-        font-sans
-        text-[#0F172A]
-      "
-    >
-      {/* =====================================================
-          BACKGROUND DECORATION
-      ===================================================== */}
-
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        {/* Left glow */}
-        <div
-          className="
-            absolute
-            -left-[180px]
-            top-[120px]
-            h-[460px]
-            w-[460px]
-            rounded-full
-            bg-[#3B82F6]/4
-            blur-[120px]
-          "
-        />
-
-        {/* Right glow */}
-        <div
-          className="
-            absolute
-            -right-[180px]
-            top-[280px]
-            h-[470px]
-            w-[470px]
-            rounded-full
-            bg-[#C86D51]/4
-            blur-[130px]
-          "
-        />
-
-        {/* Bottom glow */}
-        <div
-          className="
-            absolute
-            bottom-[-200px]
-            left-[30%]
-            h-[430px]
-            w-[430px]
-            rounded-full
-            bg-[#3B82F6]/3
-            blur-[120px]
-          "
-        />
-
-        {/* Subtle network */}
-        <svg
-          className="absolute inset-0 h-full w-full opacity-[0.045]"
-          viewBox="0 0 1600 1200"
-          preserveAspectRatio="none"
+    <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+      {/* Top Breadcrumb & Selected Scenario Badge */}
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <button
+          type="button"
+          onClick={handleBack}
+          className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 hover:text-slate-900 transition-colors"
         >
-          <line
-            x1="0"
-            y1="260"
-            x2="145"
-            y2="120"
-            stroke="#3B82F6"
-            strokeWidth="1"
-          />
+          <ArrowLeft size={16} />
+          Back to Scenario Selection
+        </button>
 
-          <line
-            x1="145"
-            y1="120"
-            x2="95"
-            y2="390"
-            stroke="#3B82F6"
-            strokeWidth="1"
-          />
-
-          <line
-            x1="1510"
-            y1="170"
-            x2="1600"
-            y2="90"
-            stroke="#3B82F6"
-            strokeWidth="1"
-          />
-
-          <line
-            x1="1510"
-            y1="170"
-            x2="1580"
-            y2="460"
-            stroke="#3B82F6"
-            strokeWidth="1"
-          />
-
-          <circle
-            cx="145"
-            cy="120"
-            r="5"
-            fill="#3B82F6"
-          />
-
-          <circle
-            cx="95"
-            cy="390"
-            r="5"
-            fill="#3B82F6"
-          />
-
-          <circle
-            cx="1510"
-            cy="170"
-            r="5"
-            fill="#3B82F6"
-          />
-        </svg>
+        <div className="flex items-center gap-2.5 px-3.5 py-1.5 rounded-full bg-white/80 border border-slate-200 shadow-xs backdrop-blur">
+          <span className="text-xs font-medium text-slate-500">Step 1 Scenario:</span>
+          <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+            {scenarioInfo.icon}
+            {scenarioInfo.title}
+          </span>
+          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+            {scenarioInfo.tag}
+          </span>
+        </div>
       </div>
 
-      {/* =====================================================
-          MAIN CONTENT
-          
-          NO NAVBAR
-          NO SECOND PROGRESS BAR
-      ===================================================== */}
+      {/* Main Header */}
+      <div className="text-center max-w-3xl mx-auto space-y-2">
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 border border-blue-200 text-blue-700 text-xs font-bold uppercase tracking-wider">
+          <Scale size={14} />
+          Step 2 & 3 Configuration
+        </div>
+        <h1 className="text-2xl sm:text-3xl lg:text-4xl font-extrabold text-slate-900 tracking-tight">
+          Select Mode & Negotiation Roles
+        </h1>
+        <p className="text-sm sm:text-base text-slate-600 leading-relaxed">
+          Choose between autonomous AI simulation or interactive human practice, configure your participant role,
+          and select the behavioral strategy.
+        </p>
+      </div>
 
-      <div className="relative z-10 w-full">
-        <section
-          className="
-            rounded-[26px]
-            border
-            border-white/85
-            bg-white/[0.62]
-            p-5
-            backdrop-blur-2xl
-            sm:p-6
-            lg:p-8
-          "
-          style={{
-            boxShadow:
-              '0 16px 45px rgba(15,23,42,0.04), inset 0 1px 0 rgba(255,255,255,0.88)',
-          }}
-        >
-          {/* =================================================
-              PAGE HEADER
-          ================================================= */}
+      {/* =========================================================
+          STEP 2: SELECT NEGOTIATION MODE (EXACTLY TWO MODES)
+      ========================================================= */}
+      <div className="space-y-4">
+        <div className="flex items-center gap-2">
+          <span className="w-6 h-6 rounded-full bg-blue-600 text-white font-bold text-xs flex items-center justify-center">
+            2
+          </span>
+          <h2 className="text-base sm:text-lg font-bold text-slate-900">
+            Select Negotiation Mode
+          </h2>
+        </div>
 
-          <div className="mb-7">
-            <div className="flex items-center gap-2">
-              <span className="h-[7px] w-[7px] rounded-full bg-[#3B82F6]" />
-
-              <span className="text-[10px] font-semibold uppercase tracking-[0.13em] text-[#3B82F6]">
-                STEP 02 OF 06
-              </span>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          {/* Option 1: AI vs AI — Simulation Mode */}
+          <div
+            onClick={() => setCurrentMode('ai-ai')}
+            className={`relative p-6 rounded-2xl border-2 cursor-pointer transition-all ${
+              currentMode === 'ai-ai'
+                ? 'border-blue-600 bg-blue-50/40 shadow-md ring-2 ring-blue-500/20'
+                : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-xs'
+            }`}
+          >
+            {currentMode === 'ai-ai' && (
+              <div className="absolute top-4 right-4 w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center shadow-xs">
+                <Check size={14} strokeWidth={3} />
+              </div>
+            )}
+            <div className="flex items-center gap-3.5 mb-3">
+              <div className="w-12 h-12 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center font-bold">
+                <Bot size={26} />
+              </div>
+              <div>
+                <h3 className="text-base font-extrabold text-slate-900">AI vs AI — Simulation Mode</h3>
+                <span className="text-xs font-semibold text-purple-700">Autonomous Machine-to-Machine</span>
+              </div>
             </div>
+            <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
+              Both negotiation participants are controlled by autonomous AI agents. Watch turn-by-turn counteroffers,
+              concession velocity, and multi-issue trade-offs until agreement or deadlock.
+            </p>
+            <div className="mt-4 pt-3 border-t border-slate-200/60 flex items-center gap-2 text-xs font-medium text-slate-500">
+              <Sparkles size={14} className="text-purple-600" />
+              <span>Full automated analytics and comparative report generated upon completion.</span>
+            </div>
+          </div>
 
-            <h1 className="mt-4 text-[26px] font-semibold tracking-[-0.025em] text-[#0F172A] sm:text-[28px]">
-              Choose Negotiation Mode
-            </h1>
+          {/* Option 2: Human vs AI — Practice Mode */}
+          <div
+            onClick={() => setCurrentMode('human-ai')}
+            className={`relative p-6 rounded-2xl border-2 cursor-pointer transition-all ${
+              currentMode === 'human-ai'
+                ? 'border-blue-600 bg-blue-50/40 shadow-md ring-2 ring-blue-500/20'
+                : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-xs'
+            }`}
+          >
+            {currentMode === 'human-ai' && (
+              <div className="absolute top-4 right-4 w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center shadow-xs">
+                <Check size={14} strokeWidth={3} />
+              </div>
+            )}
+            <div className="flex items-center gap-3.5 mb-3">
+              <div className="w-12 h-12 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center font-bold">
+                <CircleUserRound size={26} />
+              </div>
+              <div>
+                <h3 className="text-base font-extrabold text-slate-900">Human vs AI — Practice Mode</h3>
+                <span className="text-xs font-semibold text-blue-700">Interactive Single-Player Sandbox</span>
+              </div>
+            </div>
+            <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
+              You play one participant role directly, and an autonomous AI agent plays the opposing role.
+              Submit custom offers, conditional trade-offs, and test your tactics in real time.
+            </p>
+            <div className="mt-4 pt-3 border-t border-slate-200/60 flex items-center gap-2 text-xs font-medium text-slate-500">
+              <Handshake size={14} className="text-blue-600" />
+              <span>The AI dynamically understands your offers with complete multi-turn memory.</span>
+            </div>
+          </div>
+        </div>
+      </div>
 
-            <p className="mt-3 max-w-[760px] text-[12.5px] font-medium leading-6 text-[#64748B] sm:text-[13px]">
-              Select how you want this negotiation to be
-              conducted. This will determine your role and
-              the type of negotiation experience.
+      {/* =========================================================
+          STEP 3: IF HUMAN VS AI, CHOOSE YOUR ROLE
+      ========================================================= */}
+      {currentMode === 'human-ai' ? (
+        <div className="space-y-4 pt-2">
+          <div className="flex items-center gap-2">
+            <span className="w-6 h-6 rounded-full bg-blue-600 text-white font-bold text-xs flex items-center justify-center">
+              3
+            </span>
+            <h2 className="text-base sm:text-lg font-bold text-slate-900">
+              Choose Your Role
+            </h2>
+            <span className="text-xs text-slate-500 font-medium ml-1">
+              (The AI automatically assumes the opposing role)
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {roleOptions.map((role) => {
+              const isSelected = selectedHumanRole === role.id;
+              return (
+                <div
+                  key={role.id}
+                  onClick={() => setSelectedHumanRole(role.id)}
+                  className={`relative p-5 rounded-xl border-2 cursor-pointer transition-all ${
+                    isSelected
+                      ? 'border-blue-600 bg-white shadow-md ring-2 ring-blue-500/20'
+                      : 'border-slate-200 bg-white/80 hover:border-slate-300 hover:shadow-xs'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <h4 className="text-sm font-extrabold text-slate-900">
+                        I am the {role.label}
+                      </h4>
+                      <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                        {role.description}
+                      </p>
+                    </div>
+                    <div
+                      className={`h-5 w-5 rounded-full border-2 flex items-center justify-center shrink-0 mt-0.5 ${
+                        isSelected ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-300 bg-white'
+                      }`}
+                    >
+                      {isSelected && <Check size={12} strokeWidth={3} />}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* DYNAMIC MATCHUP BANNER */}
+          <div className="p-4 rounded-xl bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 border border-blue-200 flex flex-wrap items-center justify-between gap-4 shadow-2xs">
+            <div className="flex items-center gap-3">
+              <div className="px-3 py-1 rounded-lg bg-blue-600 text-white font-black text-xs uppercase tracking-wider flex items-center gap-1.5 shadow-xs">
+                <User size={14} />
+                You: {activeRoleConfig?.label}
+              </div>
+              <span className="text-xs font-bold text-slate-400">VS</span>
+              <div className="px-3 py-1 rounded-lg bg-orange-600 text-white font-black text-xs uppercase tracking-wider flex items-center gap-1.5 shadow-xs">
+                <Bot size={14} />
+                AI: {activeRoleConfig?.opposingLabel}
+              </div>
+            </div>
+            <p className="text-xs font-semibold text-slate-700">
+              Configured: You will negotiate directly against the AI counterparty ({activeRoleConfig?.opposingLabel}).
             </p>
           </div>
-
-          {/* =================================================
-              MAIN GRID
-          ================================================= */}
-
-          <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_400px]">
-
-            {/* =================================================
-                MODE CARDS
-            ================================================= */}
-
-            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-
-              {/* =================================================
-                  AI VS AI
-              ================================================= */}
-
-              <button
-                type="button"
-                onClick={() =>
-                  handleSelectMode('ai-ai')
-                }
-                className="
-                  group
-                  relative
-                  min-h-[480px]
-                  overflow-hidden
-                  rounded-[20px]
-                  border
-                  bg-white/[0.56]
-                  p-6
-                  text-left
-                  backdrop-blur-2xl
-                  transition-all
-                  duration-200
-                "
-                style={{
-                  borderColor:
-                    selectedMode === 'ai-ai'
-                      ? '#3B82F6'
-                      : 'rgba(220,228,240,0.95)',
-
-                  boxShadow:
-                    selectedMode === 'ai-ai'
-                      ? '0 0 0 2px rgba(59,130,246,0.12), 0 18px 45px rgba(59,130,246,0.08)'
-                      : '0 10px 28px rgba(15,23,42,0.035)',
-
-                  background:
-                    selectedMode === 'ai-ai'
-                      ? 'linear-gradient(145deg, rgba(255,255,255,0.78), rgba(244,248,255,0.60))'
-                      : 'linear-gradient(145deg, rgba(255,255,255,0.62), rgba(255,255,255,0.42))',
-                }}
-              >
-                {/* Selection indicator */}
-
-                <div
-                  className="
-                    absolute
-                    right-5
-                    top-5
-                    flex
-                    h-[28px]
-                    w-[28px]
-                    items-center
-                    justify-center
-                    rounded-full
-                    border
-                  "
-                  style={{
-                    borderColor:
-                      selectedMode === 'ai-ai'
-                        ? '#3B82F6'
-                        : '#D7DFEC',
-
-                    backgroundColor:
-                      selectedMode === 'ai-ai'
-                        ? '#3B82F6'
-                        : 'rgba(255,255,255,0.68)',
-                  }}
-                >
-                  {selectedMode === 'ai-ai' && (
-                    <Check
-                      size={15}
-                      className="text-white"
-                      strokeWidth={3}
-                    />
-                  )}
-                </div>
-
-                {/* Illustration */}
-
-                <AiVsAiVisual />
-
-                {/* Heading */}
-
-                <div className="mt-6 flex items-center gap-3">
-                  <div
-                    className="
-                      flex
-                      h-[44px]
-                      w-[44px]
-                      items-center
-                      justify-center
-                      rounded-full
-                      border
-                      bg-white/70
-                    "
-                    style={{
-                      color: '#3B82F6',
-                      borderColor:
-                        'rgba(59,130,246,0.20)',
-                    }}
-                  >
-                    <UsersRound size={20} />
-                  </div>
-
-                  <div>
-                    <h2 className="text-[17px] font-semibold text-[#0F172A]">
-                      AI vs AI
-                    </h2>
-
-                    <span className="mt-1 inline-flex rounded-full bg-[#EAF2FF] px-3 py-1 text-[9.5px] font-medium text-[#3B82F6]">
-                      AI agents negotiate with each other
-                    </span>
-                  </div>
-                </div>
-
-                {/* Description */}
-
-                <p className="mt-5 text-[11.5px] font-medium leading-6 text-[#64748B]">
-                  Watch two AI agents negotiate
-                  autonomously based on their goals,
-                  constraints, and personalities.
-                </p>
-
-                {/* Benefits */}
-
-                <div className="mt-5 space-y-3">
-                  {[
-                    'Observe realistic negotiation strategies',
-                    'Learn from AI decision-making patterns',
-                    'Best for analysis and training',
-                  ].map((item) => (
-                    <div
-                      key={item}
-                      className="flex items-center gap-3"
-                    >
-                      <div className="flex h-[18px] w-[18px] items-center justify-center rounded-full border border-[#3B82F6]/20 bg-[#EEF5FF]">
-                        <Check
-                          size={11}
-                          className="text-[#3B82F6]"
-                          strokeWidth={3}
-                        />
-                      </div>
-
-                      <span className="text-[10.5px] font-medium text-[#334155]">
-                        {item}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </button>
-
-              {/* =================================================
-                  HUMAN VS AI
-              ================================================= */}
-
-              <button
-                type="button"
-                onClick={() =>
-                  handleSelectMode('human-ai')
-                }
-                className="
-                  group
-                  relative
-                  min-h-[480px]
-                  overflow-hidden
-                  rounded-[20px]
-                  border
-                  bg-white/[0.56]
-                  p-6
-                  text-left
-                  backdrop-blur-2xl
-                  transition-all
-                  duration-200
-                "
-                style={{
-                  borderColor:
-                    selectedMode === 'human-ai'
-                      ? '#C86D51'
-                      : 'rgba(220,228,240,0.95)',
-
-                  boxShadow:
-                    selectedMode === 'human-ai'
-                      ? '0 0 0 2px rgba(200,109,81,0.10), 0 18px 45px rgba(200,109,81,0.08)'
-                      : '0 10px 28px rgba(15,23,42,0.035)',
-                }}
-              >
-                {/* Selection indicator */}
-
-                <div
-                  className="
-                    absolute
-                    right-5
-                    top-5
-                    flex
-                    h-[28px]
-                    w-[28px]
-                    items-center
-                    justify-center
-                    rounded-full
-                    border
-                  "
-                  style={{
-                    borderColor:
-                      selectedMode === 'human-ai'
-                        ? '#C86D51'
-                        : '#D7DFEC',
-
-                    backgroundColor:
-                      selectedMode === 'human-ai'
-                        ? '#C86D51'
-                        : 'rgba(255,255,255,0.68)',
-                  }}
-                >
-                  {selectedMode === 'human-ai' && (
-                    <Check
-                      size={15}
-                      className="text-white"
-                      strokeWidth={3}
-                    />
-                  )}
-                </div>
-
-                {/* Illustration */}
-
-                <HumanVsAiVisual />
-
-                {/* Heading */}
-
-                <div className="mt-6 flex items-center gap-3">
-                  <div
-                    className="
-                      flex
-                      h-[44px]
-                      w-[44px]
-                      items-center
-                      justify-center
-                      rounded-full
-                      border
-                      bg-white/70
-                    "
-                    style={{
-                      color: '#C86D51',
-                      borderColor:
-                        'rgba(200,109,81,0.20)',
-                    }}
-                  >
-                    <CircleUserRound size={20} />
-                  </div>
-
-                  <div>
-                    <h2 className="text-[17px] font-semibold text-[#0F172A]">
-                      Human vs AI
-                    </h2>
-
-                    <span className="mt-1 inline-flex rounded-full bg-[#FFF0EA] px-3 py-1 text-[9.5px] font-medium text-[#C86D51]">
-                      You negotiate against an AI agent
-                    </span>
-                  </div>
-                </div>
-
-                {/* Description */}
-
-                <p className="mt-5 text-[11.5px] font-medium leading-6 text-[#64748B]">
-                  Take the role of one party and
-                  negotiate directly against an AI agent
-                  with configurable behavior.
-                </p>
-
-                {/* Benefits */}
-
-                <div className="mt-5 space-y-3">
-                  {[
-                    'Practice real negotiation skills',
-                    'Receive AI-powered feedback',
-                    'Best for hands-on learning',
-                  ].map((item) => (
-                    <div
-                      key={item}
-                      className="flex items-center gap-3"
-                    >
-                      <div className="flex h-[18px] w-[18px] items-center justify-center rounded-full border border-[#C86D51]/20 bg-[#FFF0EA]">
-                        <Check
-                          size={11}
-                          className="text-[#C86D51]"
-                          strokeWidth={3}
-                        />
-                      </div>
-
-                      <span className="text-[10.5px] font-medium text-[#334155]">
-                        {item}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </button>
+        </div>
+      ) : (
+        /* AI vs AI Matchup Banner */
+        <div className="p-4 rounded-xl bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 flex flex-wrap items-center justify-between gap-4 shadow-2xs">
+          <div className="flex items-center gap-3">
+            <div className="px-3 py-1 rounded-lg bg-purple-700 text-white font-black text-xs uppercase tracking-wider flex items-center gap-1.5 shadow-xs">
+              <Bot size={14} />
+              AI Participant 1: {roleOptions[0]?.label}
             </div>
+            <span className="text-xs font-bold text-slate-400">VS</span>
+            <div className="px-3 py-1 rounded-lg bg-indigo-700 text-white font-black text-xs uppercase tracking-wider flex items-center gap-1.5 shadow-xs">
+              <Bot size={14} />
+              AI Participant 2: {roleOptions[1]?.label}
+            </div>
+          </div>
+          <p className="text-xs font-semibold text-slate-700">
+            Both sides will be driven autonomously by LLM orchestrator turn-taking.
+          </p>
+        </div>
+      )}
 
-            {/* =================================================
-                RIGHT SIDE
-            ================================================= */}
+      {/* =========================================================
+          STEP 4: SELECT PERSONALITY / STRATEGY
+      ========================================================= */}
+      <div className="space-y-4 pt-2">
+        <div className="flex items-center gap-2">
+          <span className="w-6 h-6 rounded-full bg-blue-600 text-white font-bold text-xs flex items-center justify-center">
+            {currentMode === 'human-ai' ? 4 : 3}
+          </span>
+          <h2 className="text-base sm:text-lg font-bold text-slate-900">
+            {currentMode === 'human-ai'
+              ? 'Select AI Counterparty Personality'
+              : 'Select Negotiation Strategy Style'}
+          </h2>
+          <span className="text-xs text-slate-500 font-medium ml-1">
+            (Governs opening anchor, concession timing, and deadlock resistance)
+          </span>
+        </div>
 
-            <aside className="space-y-5">
-
-              {/* Selected Scenario */}
-
-              <section
-                className="
-                  rounded-[20px]
-                  border
-                  border-white/85
-                  bg-white/[0.62]
-                  p-6
-                  backdrop-blur-2xl
-                "
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+          {PERSONALITIES.map((p) => {
+            const isSelected = selectedPersonality === p.id;
+            return (
+              <div
+                key={p.id}
+                onClick={() => setSelectedPersonality(p.id)}
+                className={`relative flex flex-col justify-between rounded-2xl border-2 cursor-pointer p-5 transition-all bg-white ${
+                  isSelected
+                    ? 'shadow-lg scale-[1.01] ring-2'
+                    : 'border-slate-200 hover:border-slate-300 hover:shadow-xs'
+                }`}
                 style={{
-                  boxShadow:
-                    '0 12px 32px rgba(15,23,42,0.04), inset 0 1px 0 rgba(255,255,255,0.9)',
+                  borderColor: isSelected ? p.accent : undefined,
+                  boxShadow: isSelected ? `0 10px 25px ${p.accent}20` : undefined,
                 }}
               >
-                <h3 className="text-[13px] font-semibold text-[#3B82F6]">
-                  Selected Scenario
-                </h3>
-
-                <div className="mt-6 flex items-center gap-4">
+                {isSelected && (
                   <div
-                    className="
-                      flex
-                      h-[62px]
-                      w-[62px]
-                      shrink-0
-                      items-center
-                      justify-center
-                      rounded-[15px]
-                      border
-                      bg-white/75
-                    "
+                    className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full text-[10px] font-extrabold text-white shadow-xs flex items-center gap-1"
+                    style={{ backgroundColor: p.accent }}
+                  >
+                    <Check size={11} strokeWidth={3} />
+                    ACTIVE PERSONALITY
+                  </div>
+                )}
+
+                <div className="space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div
+                        className="flex h-11 w-11 items-center justify-center rounded-xl border"
+                        style={{
+                          backgroundColor: p.soft,
+                          borderColor: p.border,
+                        }}
+                      >
+                        {p.icon}
+                      </div>
+                      <div>
+                        <h3 className="text-base font-extrabold text-slate-900">{p.name}</h3>
+                        <p className="text-xs font-semibold" style={{ color: p.accent }}>
+                          {p.tagline}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div
+                      className={`h-5 w-5 rounded-full border-2 flex items-center justify-center ${
+                        isSelected ? 'border-transparent text-white' : 'border-slate-300 bg-white'
+                      }`}
+                      style={{ backgroundColor: isSelected ? p.accent : undefined }}
+                    >
+                      {isSelected && <Check size={12} strokeWidth={3} />}
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    {p.description}
+                  </p>
+
+                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100">
+                    <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
+                      <span className="text-[10px] uppercase font-semibold text-slate-400 block">
+                        Cooperation
+                      </span>
+                      <span className="text-xs font-bold text-slate-800">
+                        {p.metrics.cooperation}
+                      </span>
+                    </div>
+                    <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
+                      <span className="text-[10px] uppercase font-semibold text-slate-400 block">
+                        Concessions
+                      </span>
+                      <span className="text-xs font-bold text-slate-800">
+                        {p.metrics.concessionRate}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1 pt-1">
+                    {p.highlights.map((item, idx) => (
+                      <div key={idx} className="flex items-start gap-1.5 text-xs text-slate-600">
+                        <CheckCircle2
+                          size={13}
+                          className="shrink-0 mt-0.5"
+                          style={{ color: p.accent }}
+                        />
+                        <span>{item}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="pt-4">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedPersonality(p.id);
+                    }}
+                    className={`w-full py-2 px-3 rounded-xl text-xs font-bold transition-all ${
+                      isSelected
+                        ? 'text-white shadow-xs'
+                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                    }`}
                     style={{
-                      color: scenarioInfo.accent,
-                      borderColor: `${scenarioInfo.accent}24`,
+                      backgroundColor: isSelected ? p.accent : undefined,
                     }}
                   >
-                    {scenarioInfo.icon}
-                  </div>
-
-                  <div className="min-w-0">
-                    <h4 className="text-[14px] font-semibold leading-5 text-[#0F172A]">
-                      {scenarioInfo.title}
-                    </h4>
-
-                    <span
-                      className="mt-2 inline-flex rounded-full px-3 py-1 text-[9px] font-medium"
-                      style={{
-                        color: scenarioInfo.accent,
-                        backgroundColor: scenarioInfo.soft,
-                      }}
-                    >
-                      {scenarioInfo.tag}
-                    </span>
-                  </div>
+                    {isSelected ? 'Personality Selected' : `Select ${p.name}`}
+                  </button>
                 </div>
-              </section>
+              </div>
+            );
+          })}
+        </div>
+      </div>
 
-              {/* About Modes */}
+      {/* Bottom Sticky Action Strip */}
+      <div className="bg-white/95 backdrop-blur-md rounded-2xl border border-slate-200 p-5 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="flex items-center gap-3 text-sm text-slate-600">
+          <Sparkles size={18} className="text-blue-500 shrink-0" />
+          <span>
+            Ready to proceed with{' '}
+            <strong className="text-slate-900">
+              {currentMode === 'human-ai'
+                ? `Human vs AI (You: ${activeRoleConfig?.label})`
+                : 'AI vs AI Simulation'}
+            </strong>{' '}
+            using{' '}
+            <strong className="text-slate-900">{selectedPersonality}</strong> strategy.
+          </span>
+        </div>
 
-              <section
-                className="
-                  rounded-[20px]
-                  border
-                  border-white/85
-                  bg-white/[0.62]
-                  p-6
-                  backdrop-blur-2xl
-                "
-                style={{
-                  boxShadow:
-                    '0 12px 32px rgba(15,23,42,0.04), inset 0 1px 0 rgba(255,255,255,0.9)',
-                }}
-              >
-                <h3 className="text-[13px] font-semibold text-[#3B82F6]">
-                  About Negotiation Modes
-                </h3>
-
-                {/* AI vs AI */}
-
-                <div className="mt-7 flex gap-4">
-                  <div
-                    className="
-                      flex
-                      h-[46px]
-                      w-[46px]
-                      shrink-0
-                      items-center
-                      justify-center
-                      rounded-[14px]
-                      border
-                      bg-[#EEF5FF]
-                      text-[#3B82F6]
-                    "
-                  >
-                    <UsersRound size={20} />
-                  </div>
-
-                  <div>
-                    <p className="text-[12px] font-semibold text-[#3B82F6]">
-                      AI vs AI
-                    </p>
-
-                    <p className="mt-2 text-[10.5px] font-medium leading-5 text-[#64748B]">
-                      Ideal for observing complex
-                      strategies, concession patterns,
-                      and value creation in action.
-                    </p>
-                  </div>
-                </div>
-
-                {/* Human vs AI */}
-
-                <div className="mt-7 flex gap-4">
-                  <div
-                    className="
-                      flex
-                      h-[46px]
-                      w-[46px]
-                      shrink-0
-                      items-center
-                      justify-center
-                      rounded-[14px]
-                      border
-                      bg-[#FFF0EA]
-                      text-[#C86D51]
-                    "
-                  >
-                    <CircleUserRound size={20} />
-                  </div>
-
-                  <div>
-                    <p className="text-[12px] font-semibold text-[#C86D51]">
-                      Human vs AI
-                    </p>
-
-                    <p className="mt-2 text-[10.5px] font-medium leading-5 text-[#64748B]">
-                      Perfect for building your
-                      negotiation skills with intelligent,
-                      adaptive AI opponents.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="my-6 h-px bg-[#E8EDF5]" />
-
-                {/* Tip */}
-
-                <div className="flex gap-4 rounded-[15px] border border-white/80 bg-white/35 p-4">
-                  <div
-                    className="
-                      flex
-                      h-[46px]
-                      w-[46px]
-                      shrink-0
-                      items-center
-                      justify-center
-                      rounded-[14px]
-                      border
-                      bg-[#F1EEFF]
-                      text-[#6C5CE7]
-                    "
-                  >
-                    <Lightbulb size={20} />
-                  </div>
-
-                  <div>
-                    <p className="text-[12px] font-semibold text-[#6C5CE7]">
-                      Tip
-                    </p>
-
-                    <p className="mt-2 text-[10.5px] font-medium leading-5 text-[#64748B]">
-                      You can change the mode later
-                      before starting the negotiation.
-                    </p>
-                  </div>
-                </div>
-              </section>
-            </aside>
-          </div>
-
-          {/* =================================================
-              BOTTOM ACTIONS
-          ================================================= */}
-
-          <div className="mt-7 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <button
-              type="button"
-              onClick={handleBack}
-              className="
-                flex
-                h-[54px]
-                items-center
-                justify-center
-                gap-2
-                rounded-full
-                border
-                border-white/90
-                bg-white/[0.64]
-                px-7
-                text-[12px]
-                font-semibold
-                text-[#0F172A]
-                backdrop-blur-xl
-                shadow-[0_8px_24px_rgba(15,23,42,0.04)]
-                transition-all
-                hover:bg-white/[0.82]
-              "
-            >
-              <ArrowLeft size={17} />
-              Back to Scenario
-            </button>
-
-            <button
-              type="button"
-              disabled={!selectedMode}
-              onClick={handleContinue}
-              className="
-                flex
-                h-[54px]
-                items-center
-                justify-center
-                gap-3
-                rounded-full
-                px-8
-                text-[12px]
-                font-semibold
-                transition-all
-              "
-              style={{
-                backgroundColor: selectedMode
-                  ? '#3B82F6'
-                  : '#DCE3EE',
-
-                color: selectedMode
-                  ? '#FFFFFF'
-                  : '#94A3B8',
-
-                boxShadow: selectedMode
-                  ? '0 10px 26px rgba(59,130,246,0.24)'
-                  : 'none',
-
-                cursor: selectedMode
-                  ? 'pointer'
-                  : 'not-allowed',
-              }}
-            >
-              Continue to Enter Scenario Data
-              <ArrowRight size={18} />
-            </button>
-          </div>
-        </section>
+        <button
+          type="button"
+          onClick={handleContinue}
+          className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 shadow-md transition-all shrink-0"
+        >
+          <span>Continue to Enter Real Data</span>
+          <ArrowRight size={16} />
+        </button>
       </div>
     </div>
   );

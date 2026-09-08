@@ -76,92 +76,100 @@ class GeminiProvider(BaseLLMProvider):
                 is_transient=False,
             )
 
-        try:
-            response = await asyncio.to_thread(
-                self.client.models.generate_content,
-                model=self.model_name,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    temperature=0.7,
-                ),
-            )
+        models_to_try = [self.model_name]
+        for backup_model in ["gemini-3.1-flash-lite", "gemini-2.5-flash"]:
+            if backup_model not in models_to_try:
+                models_to_try.append(backup_model)
 
-            if response and response.text:
-                data = self._clean_and_parse_json(response.text)
-
-                usage = getattr(response, "usage_metadata", None)
-                if usage:
-                    try:
-                        from app.negotiation.telemetry import NegotiationTelemetry
-                        NegotiationTelemetry.emit(
-                            event_type="token_usage",
-                            session_id="llm_execution",
-                            agent_name=agent_role,
-                            current_round=current_round,
-                            payload={
-                                "provider": self.provider_name(),
-                                "model": self.model_name,
-                                "prompt_tokens": getattr(usage, "prompt_token_count", 0),
-                                "completion_tokens": getattr(usage, "candidates_token_count", 0),
-                                "total_tokens": getattr(usage, "total_token_count", 0),
-                            },
-                        )
-                    except Exception as telem_err:
-                        logger.debug(f"Telemetry emit skipped: {telem_err}")
-
-                return AgentDecision(
-                    action=data.get("action", "counteroffer"),
-                    message=data.get("message", "I present our current proposal."),
-                    rationale_summary=data.get("rationale_summary", "Evaluating trade-offs."),
-                    offer=data.get("offer", {}),
-                    concession_percentage=float(data.get("concession_percentage", 5.0)),
-                    confidence_score=float(data.get("confidence_score", 0.9)),
-                )
-            else:
-                raise LLMProviderError(
-                    message="Empty response received from Gemini API",
-                    provider_name=self.provider_name(),
-                    status_code=502,
-                    is_quota=False,
-                    is_transient=True,
+        last_error = None
+        for model in models_to_try:
+            try:
+                response = await asyncio.to_thread(
+                    self.client.models.generate_content,
+                    model=model,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        temperature=0.7,
+                    ),
                 )
 
-        except json.JSONDecodeError as e:
-            raise LLMProviderError(
-                message=f"Invalid JSON returned by Gemini: {e}",
-                provider_name=self.provider_name(),
-                status_code=422,
-                is_quota=False,
-                is_transient=True,
-            )
-        except Exception as e:
-            err_str = str(e).upper()
-            status_code = getattr(e, "code", getattr(e, "status_code", None))
-            
-            # Detect Rate Limit / Quota Exhaustion
-            is_quota = (
-                "429" in err_str
-                or "RESOURCE_EXHAUSTED" in err_str
-                or "QUOTA_EXCEEDED" in err_str
-                or "RATE_LIMIT" in err_str
-                or status_code == 429
-            )
-            
-            # Detect Timeout / Network / Temporary Server Errors
-            is_transient = not is_quota and (
-                "TIMEOUT" in err_str
-                or "500" in err_str
-                or "503" in err_str
-                or "UNAVAILABLE" in err_str
-                or "CONNECTION" in err_str
-                or "DEADLINE_EXCEEDED" in err_str
-            )
+                if response and response.text:
+                    data = self._clean_and_parse_json(response.text)
 
-            raise LLMProviderError(
-                message=f"Gemini API failure: {e}",
-                provider_name=self.provider_name(),
-                status_code=status_code or (429 if is_quota else 500),
-                is_quota=is_quota,
-                is_transient=is_transient,
-            )
+                    usage = getattr(response, "usage_metadata", None)
+                    if usage:
+                        try:
+                            from app.negotiation.telemetry import NegotiationTelemetry
+                            NegotiationTelemetry.emit(
+                                event_type="token_usage",
+                                session_id="llm_execution",
+                                agent_name=agent_role,
+                                current_round=current_round,
+                                payload={
+                                    "provider": self.provider_name(),
+                                    "model": model,
+                                    "prompt_tokens": getattr(usage, "prompt_token_count", 0),
+                                    "completion_tokens": getattr(usage, "candidates_token_count", 0),
+                                    "total_tokens": getattr(usage, "total_token_count", 0),
+                                },
+                            )
+                        except Exception as telem_err:
+                            logger.debug(f"Telemetry emit skipped: {telem_err}")
+
+                    return AgentDecision(
+                        action=data.get("action", "counteroffer"),
+                        message=data.get("message", "I present our current proposal."),
+                        rationale_summary=data.get("rationale_summary", "Evaluating trade-offs."),
+                        offer=data.get("offer", {}),
+                        concession_percentage=float(data.get("concession_percentage", 5.0)),
+                        confidence_score=float(data.get("confidence_score", 0.9)),
+                    )
+                else:
+                    logger.warning(f"Empty response from Gemini model {model}, trying next if available")
+                    continue
+
+            except json.JSONDecodeError as e:
+                logger.warning(f"Invalid JSON returned by Gemini model {model}: {e}")
+                last_error = e
+                continue
+            except Exception as e:
+                err_str = str(e).upper()
+                status_code = getattr(e, "code", getattr(e, "status_code", None))
+                is_quota = (
+                    "429" in err_str
+                    or "RESOURCE_EXHAUSTED" in err_str
+                    or "QUOTA_EXCEEDED" in err_str
+                    or "RATE_LIMIT" in err_str
+                    or status_code == 429
+                )
+                logger.warning(f"Gemini model {model} failed (quota={is_quota}): {e}. Trying fallback model if available.")
+                last_error = e
+                continue
+
+        # If all candidate models in the chain failed
+        err_str = str(last_error).upper() if last_error else "EMPTY"
+        status_code = getattr(last_error, "code", getattr(last_error, "status_code", None))
+        is_quota = (
+            "429" in err_str
+            or "RESOURCE_EXHAUSTED" in err_str
+            or "QUOTA_EXCEEDED" in err_str
+            or "RATE_LIMIT" in err_str
+            or status_code == 429
+        )
+        is_transient = not is_quota and (
+            "TIMEOUT" in err_str
+            or "500" in err_str
+            or "503" in err_str
+            or "UNAVAILABLE" in err_str
+            or "CONNECTION" in err_str
+            or "DEADLINE_EXCEEDED" in err_str
+        )
+
+        raise LLMProviderError(
+            message=f"Gemini API failure across models {models_to_try}: {last_error}",
+            provider_name=self.provider_name(),
+            status_code=status_code or (429 if is_quota else 500),
+            is_quota=is_quota,
+            is_transient=is_transient,
+        )

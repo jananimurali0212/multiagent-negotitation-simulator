@@ -30,6 +30,7 @@ class NegotiationState(TypedDict):
     status: str
     latest_decision: Optional[Dict[str, Any]]
     scenario_data: Optional[Dict[str, Any]]
+    cumulative_state: Optional[Dict[str, Any]]
 
 
 class LangGraphNegotiationEngine:
@@ -58,6 +59,8 @@ class LangGraphNegotiationEngine:
             current_round=state["current_round"],
             session_id=state.get("session_id"),
             scenario_data=state.get("scenario_data"),
+            mode=state.get("mode", "collaborative"),
+            cumulative_state=state.get("cumulative_state"),
         )
 
         # Generate LLM decision

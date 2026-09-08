@@ -24,6 +24,7 @@ export const ScenarioDataFormScreen: React.FC = () => {
     selectedMode,
     humanRole,
     setHumanRole,
+    personality,
     scenarioData,
     setScenarioData,
   } = useStore();
@@ -36,19 +37,19 @@ export const ScenarioDataFormScreen: React.FC = () => {
     switch (scenarioId) {
       case 'vendor-pricing':
         return [
-          { id: 'buyer', label: 'Buyer (Alex Rivera)', desc: 'Negotiate price discount, SLA warranty, and payment terms' },
-          { id: 'vendor', label: 'Vendor (Sarah Chen)', desc: 'Defend margins, contract volume, and delivery schedule' },
+          { id: 'buyer', label: 'Buyer', desc: 'Negotiate price discount, SLA warranty, and payment terms' },
+          { id: 'vendor', label: 'Vendor', desc: 'Defend margins, contract volume, and delivery schedule' },
         ];
       case 'job-offer':
         return [
-          { id: 'candidate', label: 'Candidate (Jordan Hayes)', desc: 'Push for higher base salary, equity, and remote days' },
-          { id: 'recruiter', label: 'Recruiter / Hiring Manager (Elena Rostova)', desc: 'Balance talent acquisition with department budget caps' },
+          { id: 'candidate', label: 'Candidate', desc: 'Push for higher base salary, equity, and remote days' },
+          { id: 'recruiter', label: 'Employer / Recruiter', desc: 'Balance talent acquisition with department budget caps' },
         ];
       case 'budget-allocation':
         return [
-          { id: 'department-head', label: 'Department Head (Liam Connor)', desc: 'Champion key initiatives and secure department resources' },
-          { id: 'project-manager', label: 'Project Manager (Priya Sharma)', desc: 'Ensure balanced distribution for project delivery' },
-          { id: 'finance-director', label: 'Finance Director (David Vance)', desc: 'Maintain fiscal discipline, ROI accountability, and spending limits' },
+          { id: 'project-manager', label: 'Project Manager', desc: 'Advocate for core engineering and project delivery resources' },
+          { id: 'finance-director', label: 'Finance Manager', desc: 'Maintain fiscal discipline, ROI accountability, and spending limits' },
+          { id: 'department-head', label: 'Department Head', desc: 'Champion marketing initiatives and secure department resources' },
         ];
       default:
         return [
@@ -147,6 +148,11 @@ export const ScenarioDataFormScreen: React.FC = () => {
     }
 
     try {
+      finalData.personality = personality || 'Collaborative';
+      finalData.mode = selectedMode || 'human-ai';
+      if (isHumanAi) {
+        finalData.human_role = selectedRole;
+      }
       setScenarioData(finalData);
       if (isHumanAi) {
         setHumanRole(selectedRole);

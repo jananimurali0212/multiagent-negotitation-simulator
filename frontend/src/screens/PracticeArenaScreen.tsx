@@ -195,6 +195,15 @@ export const PracticeArenaScreen: React.FC = () => {
     return { label: 'Firm Boundary', color: 'bg-purple-100 text-purple-700 border-purple-200' };
   }, [status, currentRound, messages]);
 
+  // Real User Currency Symbol
+  const currencySymbol = useMemo(() => {
+    const allDataStr = Object.values(scenarioData || {}).join(' ') + ' ' + (selectedScenario?.description || '');
+    if (allDataStr.includes('₹') || allDataStr.toLowerCase().includes('rs') || allDataStr.toLowerCase().includes('inr')) return '₹';
+    if (allDataStr.includes('€') || allDataStr.toLowerCase().includes('eur')) return '€';
+    if (allDataStr.includes('£') || allDataStr.toLowerCase().includes('gbp')) return '£';
+    return '$';
+  }, [scenarioData, selectedScenario]);
+
   // Terms Spread / Gap Metric
   const termsGap = useMemo(() => {
     if (!latestAiOffer || !latestUserOffer) return null;
@@ -205,8 +214,8 @@ export const PracticeArenaScreen: React.FC = () => {
         const diff = Math.abs(aiPrice - userPrice);
         return {
           label: 'Price Gap',
-          value: `$${diff.toFixed(0)}/user/mo`,
-          detail: userPrice < aiPrice ? `AI asking $${(aiPrice - userPrice).toFixed(0)} more` : `AI offering $${(userPrice - aiPrice).toFixed(0)} less`,
+          value: `${currencySymbol}${diff.toFixed(0)}/user/mo`,
+          detail: userPrice < aiPrice ? `AI asking ${currencySymbol}${(aiPrice - userPrice).toFixed(0)} more` : `AI offering ${currencySymbol}${(userPrice - aiPrice).toFixed(0)} less`,
           isClose: diff <= 10,
         };
       }
@@ -217,14 +226,14 @@ export const PracticeArenaScreen: React.FC = () => {
         const diff = Math.abs(aiSal - userSal);
         return {
           label: 'Salary Gap',
-          value: `$${diff.toLocaleString()}`,
-          detail: userSal > aiSal ? `Target is $${(userSal - aiSal).toLocaleString()} higher` : `Target is $${(aiSal - userSal).toLocaleString()} lower`,
+          value: `${currencySymbol}${diff.toLocaleString()}`,
+          detail: userSal > aiSal ? `Target is ${currencySymbol}${(userSal - aiSal).toLocaleString()} higher` : `Target is ${currencySymbol}${(aiSal - userSal).toLocaleString()} lower`,
           isClose: diff <= 10000,
         };
       }
     }
     return null;
-  }, [latestAiOffer, latestUserOffer, scenarioId]);
+  }, [latestAiOffer, latestUserOffer, scenarioId, currencySymbol]);
 
   // Initialize or restore session on mount/refresh
   useEffect(() => {
@@ -474,7 +483,7 @@ export const PracticeArenaScreen: React.FC = () => {
       const aiPrice = parseFloat(String(latestAiOffer.price || '80').replace(/[^0-9.]/g, ''));
       const userPrice = parseFloat(String(latestUserOffer.price || '55').replace(/[^0-9.]/g, ''));
       const mid = Math.round((aiPrice + userPrice) / 2);
-      setInputText(`How about we meet in the middle at $${mid}/user/month with standard 14-day SLA terms?`);
+      setInputText(`How about we meet in the middle at ${currencySymbol}${mid}/user/month with standard 14-day SLA terms?`);
       inputRef.current?.focus();
       return;
     }
@@ -482,7 +491,7 @@ export const PracticeArenaScreen: React.FC = () => {
       const aiSal = parseInt(String(latestAiOffer.salary || '160000').replace(/[^0-9]/g, ''), 10);
       const userSal = parseInt(String(latestUserOffer.salary || '185000').replace(/[^0-9]/g, ''), 10);
       const mid = Math.round((aiSal + userSal) / 2000) * 1000;
-      setInputText(`Could we find common ground at $${mid.toLocaleString()} base salary with 3 days remote flexibility?`);
+      setInputText(`Could we find common ground at ${currencySymbol}${mid.toLocaleString()} base salary with 3 days remote flexibility?`);
       inputRef.current?.focus();
       return;
     }

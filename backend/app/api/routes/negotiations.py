@@ -84,14 +84,47 @@ async def create_session(
     await db.flush()
 
     # Pre-populate agent configurations grounded strictly on authoritative scenario data
+    chosen_personality = sc_data.get("personality") or sc_data.get("ai_personality")
+    clean_human_role = (payload.human_role or "").lower()
+
     for default_agent in scenario.default_agents_data:
+        agent_role_lower = (default_agent.get("role") or "").lower()
+        agent_template_id = default_agent.get("agent_template_id", "")
+        agent_name = default_agent.get("name", "")
+
+        # Determine personality
+        agent_personality = default_agent.get("personality", "Collaborative")
+        agent_specific_pers = None
+        if sc_data.get("agent_personalities") and isinstance(sc_data["agent_personalities"], dict):
+            for k, v in sc_data["agent_personalities"].items():
+                if k.lower() in agent_template_id.lower() or k.lower() in agent_role_lower or k.lower() in agent_name.lower():
+                    agent_specific_pers = v
+                    break
+        elif sc_data.get(f"{agent_template_id}_personality"):
+            agent_specific_pers = sc_data.get(f"{agent_template_id}_personality")
+
+        if agent_specific_pers:
+            agent_personality = agent_specific_pers
+        elif chosen_personality:
+            if payload.mode == "human-ai" and clean_human_role:
+                # In Practice mode, apply chosen personality to opposing AI counterparty
+                is_this_human = any(
+                    token in agent_role_lower or token in agent_template_id.lower() or token in agent_name.lower()
+                    for token in clean_human_role.replace("_", "-").split("-") if token
+                )
+                if not is_this_human:
+                    agent_personality = chosen_personality
+            elif payload.mode == "ai-ai":
+                agent_personality = chosen_personality
+
+
         agent_config = AgentConfiguration(
             session_id=session.id,
             agent_template_id=default_agent["agent_template_id"],
             name=default_agent["name"],
             role=default_agent["role"],
             avatar=default_agent["avatar"],
-            personality=default_agent["personality"],
+            personality=agent_personality,
             experience=default_agent.get("experience", "Medium"),
             negotiation_parameters=default_agent.get("negotiation_parameters", {}),
         )
@@ -359,11 +392,15 @@ async def complete_negotiation(
         outcome = "Deadlock"
         status_val = "deadlock"
 
-    session.status = status_val
-    await db.commit()
-
-    # Generate and persist the comprehensive outcome report
-    await ReportGenerator.generate_and_save_report(session, outcome, db)
+    report = await OrchestratorService.finalize_negotiation(
+        session=session,
+        outcome=outcome,
+        db=db,
+        status=status_val,
+        final_terms=final_terms,
+        deadlock_reason=session.deadlock_reason,
+    )
+    report_data = ReportResponse.model_validate(report).model_dump(mode="json")
 
     return TurnResultResponse(
         status=session.status,
@@ -372,6 +409,7 @@ async def complete_negotiation(
         message=None,
         agreement_reached=session.agreement_reached,
         final_terms=session.final_terms,
+        report=report_data,
     )
 
 
@@ -382,20 +420,34 @@ async def get_session_report(
     db: AsyncSession = Depends(get_db),
 ):
     """Retrieves the generated outcome report directly for the specified negotiation session."""
-    stmt = select(OutcomeReport).where(OutcomeReport.session_id == session_id)
+    stmt = (
+        select(OutcomeReport)
+        .where(OutcomeReport.session_id == session_id)
+        .order_by(OutcomeReport.created_at.desc())
+    )
     result = await db.execute(stmt)
-    report = result.scalar_one_or_none()
+    report = result.scalars().first()
 
     if not report:
         # Check if session exists; if so, generate report automatically on demand
         session = await _load_full_session(session_id, db)
         if session.user_id != current_user.id:
             raise ForbiddenError()
-        outcome = "Agreement Reached" if session.agreement_reached else ("Deadlock" if session.status == "deadlock" else "No Agreement / Deadlock")
-        report = await ReportGenerator.generate_and_save_report(session, outcome, db)
+        outcome = (
+            "Agreement Reached"
+            if session.agreement_reached
+            else ("Deadlock" if session.status == "deadlock" else "No Agreement / Deadlock")
+        )
+        report = await OrchestratorService.finalize_negotiation(
+            session=session, outcome=outcome, db=db
+        )
 
-    if report.user_id != current_user.id:
-        raise ForbiddenError()
+    # Auto-heal any historical reports that suffered from zero salary bug
+    if report.scenario_id == "job-offer":
+        sal_val = (report.scenario_analysis or {}).get("final_salary", "")
+        if (sal_val in ["₹0", "$0", "0", "0.0", "₹0 / year", "$0 / year"] or (sal_val.strip() in ["₹0", "$0"])) and report.outcome in ["Agreement Reached", "Agreement", "Partial Agreement"]:
+            session = await _load_full_session(session_id, db)
+            report = await ReportGenerator.generate_and_save_report(session, report.outcome, db)
 
     # Dynamically normalize any currency mismatch from historical sessions
     sc_curr = ReportGenerator._detect_currency(report.initial_data or {}, default="")

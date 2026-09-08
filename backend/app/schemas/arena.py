@@ -12,7 +12,7 @@ class AgentDecision(BaseModel):
 
 
 class UserTurnPayload(BaseModel):
-    message: str
+    message: Optional[str] = ""
     offer: Optional[Dict[str, Any]] = None
     turn_index: Optional[int] = None
     request_id: Optional[str] = None
@@ -28,5 +28,6 @@ class TurnResultResponse(BaseModel):
     final_terms: Optional[Dict[str, Any]] = None
     validation_error: Optional[str] = None
     is_human_turn: Optional[bool] = False
+    report: Optional[Dict[str, Any]] = None
 
     model_config = ConfigDict(from_attributes=True)

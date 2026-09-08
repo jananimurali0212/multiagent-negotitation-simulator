@@ -43,8 +43,20 @@ class StateTransitionEngine:
         termination_reason = state.termination_reason
 
         if decision.action == "accept":
-            target_status = "finished"
-            termination_reason = "Agreement Reached"
+            from app.negotiation.decision_engine import DecisionEngine
+            is_term, _, _, _ = DecisionEngine.evaluate_agreement(
+                scenario_id=state.scenario_id,
+                latest_decision=decision,
+                previous_messages=state.messages,
+                current_round=state.current_round,
+                max_rounds=state.max_rounds,
+            )
+            if is_term:
+                target_status = "finished"
+                termination_reason = "Agreement Reached"
+            else:
+                target_status = state.status
+                termination_reason = None
         elif decision.action == "deadlock":
             target_status = "deadlock"
             termination_reason = "Deadlock"
