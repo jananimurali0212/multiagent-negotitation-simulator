@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 
 from sqlalchemy import text
 from app.core.config import settings
-from app.core.database import engine, Base, AsyncSessionLocal
+from app.core.database import engine, Base, AsyncSessionLocal, fallback_to_sqlite
 from app.core.exceptions import CustomHTTPException
 from app.api.router import api_router
 from app.services.seed_data import seed_scenarios
@@ -21,33 +21,45 @@ logger = logging.getLogger("backend")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting up backend application...")
-    # Initialize database tables
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-        migration_statements = [
-            "ALTER TABLE negotiation_sessions ADD COLUMN human_role VARCHAR(50)",
-            "ALTER TABLE negotiation_sessions ADD COLUMN scenario_data JSON",
-            "ALTER TABLE negotiation_sessions ADD COLUMN structured_events JSON",
-            "ALTER TABLE negotiation_sessions ADD COLUMN deadlock_reason TEXT",
-            "ALTER TABLE outcome_reports ADD COLUMN initial_data JSON",
-            "ALTER TABLE outcome_reports ADD COLUMN participants JSON",
-            "ALTER TABLE outcome_reports ADD COLUMN key_events JSON",
-            "ALTER TABLE outcome_reports ADD COLUMN unresolved_terms JSON",
-            "ALTER TABLE outcome_reports ADD COLUMN agent_analysis JSON",
-            "ALTER TABLE outcome_reports ADD COLUMN overall_score INTEGER DEFAULT 85",
-            "ALTER TABLE outcome_reports ADD COLUMN duration_seconds INTEGER DEFAULT 0",
-            "ALTER TABLE outcome_reports ADD COLUMN scenario_analysis JSON",
-            "ALTER TABLE outcome_reports ADD COLUMN final_assessment TEXT",
-        ]
-        for stmt in migration_statements:
-            try:
+    # Initialize database tables with graceful offline / DNS failure fallback
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+    except Exception as db_err:
+        logger.warning(f"Database connection error on startup ({db_err}). Switching to local SQLite database.")
+        fallback_to_sqlite()
+        from app.core.database import engine as current_engine
+        async with current_engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+    # Apply database column migrations safely per-statement
+    is_postgres = "postgresql" in str(engine.url) or "postgres" in str(engine.url)
+    migration_statements = [
+        ("ALTER TABLE negotiation_sessions ADD COLUMN IF NOT EXISTS human_role VARCHAR(50)" if is_postgres else "ALTER TABLE negotiation_sessions ADD COLUMN human_role VARCHAR(50)"),
+        ("ALTER TABLE negotiation_sessions ADD COLUMN IF NOT EXISTS scenario_data JSON" if is_postgres else "ALTER TABLE negotiation_sessions ADD COLUMN scenario_data JSON"),
+        ("ALTER TABLE negotiation_sessions ADD COLUMN IF NOT EXISTS structured_events JSON" if is_postgres else "ALTER TABLE negotiation_sessions ADD COLUMN structured_events JSON"),
+        ("ALTER TABLE negotiation_sessions ADD COLUMN IF NOT EXISTS deadlock_reason TEXT" if is_postgres else "ALTER TABLE negotiation_sessions ADD COLUMN deadlock_reason TEXT"),
+        ("ALTER TABLE outcome_reports ADD COLUMN IF NOT EXISTS initial_data JSON" if is_postgres else "ALTER TABLE outcome_reports ADD COLUMN initial_data JSON"),
+        ("ALTER TABLE outcome_reports ADD COLUMN IF NOT EXISTS participants JSON" if is_postgres else "ALTER TABLE outcome_reports ADD COLUMN participants JSON"),
+        ("ALTER TABLE outcome_reports ADD COLUMN IF NOT EXISTS key_events JSON" if is_postgres else "ALTER TABLE outcome_reports ADD COLUMN key_events JSON"),
+        ("ALTER TABLE outcome_reports ADD COLUMN IF NOT EXISTS unresolved_terms JSON" if is_postgres else "ALTER TABLE outcome_reports ADD COLUMN unresolved_terms JSON"),
+        ("ALTER TABLE outcome_reports ADD COLUMN IF NOT EXISTS agent_analysis JSON" if is_postgres else "ALTER TABLE outcome_reports ADD COLUMN agent_analysis JSON"),
+        ("ALTER TABLE outcome_reports ADD COLUMN IF NOT EXISTS overall_score INTEGER DEFAULT 85" if is_postgres else "ALTER TABLE outcome_reports ADD COLUMN overall_score INTEGER DEFAULT 85"),
+        ("ALTER TABLE outcome_reports ADD COLUMN IF NOT EXISTS duration_seconds INTEGER DEFAULT 0" if is_postgres else "ALTER TABLE outcome_reports ADD COLUMN duration_seconds INTEGER DEFAULT 0"),
+        ("ALTER TABLE outcome_reports ADD COLUMN IF NOT EXISTS scenario_analysis JSON" if is_postgres else "ALTER TABLE outcome_reports ADD COLUMN scenario_analysis JSON"),
+        ("ALTER TABLE outcome_reports ADD COLUMN IF NOT EXISTS final_assessment TEXT" if is_postgres else "ALTER TABLE outcome_reports ADD COLUMN final_assessment TEXT"),
+        ("ALTER TABLE negotiation_sessions ALTER COLUMN current_turn_index DROP NOT NULL" if is_postgres else "SELECT 1"),
+        ("ALTER TABLE outcome_reports ALTER COLUMN analysis DROP NOT NULL" if is_postgres else "SELECT 1"),
+    ]
+    from app.core.database import engine as current_engine, AsyncSessionLocal as current_sessionmaker
+    for stmt in migration_statements:
+        try:
+            async with current_engine.begin() as conn:
                 await conn.execute(text(stmt))
-            except Exception as e:
-                # SQLite duplicate column error or postgres exists
-                pass
+        except Exception:
+            pass
     
     # Seed preset scenarios
-    async with AsyncSessionLocal() as session:
+    async with current_sessionmaker() as session:
         await seed_scenarios(session)
 
     yield

@@ -17,6 +17,27 @@ logger = logging.getLogger("backend.auth")
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
+def is_supabase_auth_enabled() -> bool:
+    url = (settings.SUPABASE_URL or "").strip().lower()
+    key = (settings.SUPABASE_ANON_KEY or "").strip().lower()
+    if not url or not key:
+        return False
+    placeholders = [
+        "your-supabase-project",
+        "your-project-ref",
+        "your-supabase",
+        "<project-ref>",
+        "your-supabase-anon-key",
+        "your-anon-key",
+        "<your-supabase-anon-key>",
+    ]
+    if any(p in url for p in placeholders) or url.startswith("https://your-"):
+        return False
+    if any(p in key for p in placeholders) or key.startswith("your-") or key == "anon":
+        return False
+    return True
+
+
 @router.post("/signup", response_model=Token, status_code=status.HTTP_201_CREATED)
 async def signup(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
     """Registers a new user with Supabase Auth and provisions their profile."""
@@ -37,8 +58,10 @@ async def signup(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
     access_token = None
     user_id = None
     supabase_error = None
+    is_enabled = is_supabase_auth_enabled()
+    is_dev_mode = "pytest" in sys.modules or not is_enabled
 
-    if settings.SUPABASE_URL and settings.SUPABASE_ANON_KEY and settings.SUPABASE_URL != "https://your-supabase-project.supabase.co":
+    if is_enabled:
         try:
             async with httpx.AsyncClient() as client:
                 res = await client.post(supabase_auth_url, json=payload, headers=headers, timeout=10.0)
@@ -59,11 +82,9 @@ async def signup(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
             logger.warning(f"Supabase Auth connection error: {e}")
             supabase_error = "Unable to connect to the authentication service."
 
-    is_pytest = "pytest" in sys.modules or settings.SUPABASE_URL == "https://your-supabase-project.supabase.co" or not settings.SUPABASE_ANON_KEY
-
-    # Fallback bridge if Supabase Auth requires email verification or for local testing
+    # Fallback bridge if Supabase Auth is disabled/unreachable or for local testing
     if not access_token:
-        if is_pytest:
+        if is_dev_mode:
             import jwt
             from datetime import datetime, timedelta, timezone
             result = await db.execute(select(User).where(func.lower(User.email) == func.lower(user_in.email)))
@@ -149,8 +170,10 @@ async def login(credentials: UserLogin, db: AsyncSession = Depends(get_db)):
     access_token = None
     user_id = None
     supabase_error = None
+    is_enabled = is_supabase_auth_enabled()
+    is_dev_mode = "pytest" in sys.modules or not is_enabled
 
-    if settings.SUPABASE_URL and settings.SUPABASE_ANON_KEY and settings.SUPABASE_URL != "https://your-supabase-project.supabase.co":
+    if is_enabled:
         try:
             async with httpx.AsyncClient() as client:
                 res = await client.post(supabase_auth_url, json=payload, headers=headers, timeout=10.0)
@@ -171,16 +194,21 @@ async def login(credentials: UserLogin, db: AsyncSession = Depends(get_db)):
             logger.warning(f"Supabase Auth login connection error: {e}")
             supabase_error = (503, "Unable to connect to the authentication service.")
 
-    is_pytest = "pytest" in sys.modules or settings.SUPABASE_URL == "https://your-supabase-project.supabase.co" or not settings.SUPABASE_ANON_KEY
-
-    # Fallback bridge if credentials match local database profile
+    # Fallback bridge if credentials match local database profile or local dev mode
     if not access_token:
-        if is_pytest:
+        if is_dev_mode:
             result = await db.execute(select(User).where(func.lower(User.email) == func.lower(credentials.email)))
             user = result.scalar_one_or_none()
             if not user:
-                raise UnauthorizedError("Incorrect email or password")
-            user_id = user.id
+                import uuid
+                user_id = str(uuid.uuid4())
+                full_name = credentials.email.split("@")[0].title()
+                user = User(id=user_id, email=credentials.email, full_name=full_name)
+                db.add(user)
+                await db.commit()
+                await db.refresh(user)
+            else:
+                user_id = user.id
             import jwt
             from datetime import datetime, timedelta, timezone
             secret = settings.SUPABASE_JWT_SECRET or settings.SECRET_KEY
@@ -190,7 +218,7 @@ async def login(credentials: UserLogin, db: AsyncSession = Depends(get_db)):
                 "exp": datetime.now(timezone.utc) + timedelta(days=1),
                 "aud": "authenticated",
                 "role": "authenticated",
-                "user_metadata": {"full_name": user.full_name},
+                "user_metadata": {"full_name": user.full_name or ""},
             }
             access_token = jwt.encode(token_payload, secret, algorithm="HS256")
         else:
@@ -225,17 +253,17 @@ async def login(credentials: UserLogin, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
-        if not is_pytest:
+        if is_dev_mode:
+            user = User(id=user_id, email=credentials.email)
+            db.add(user)
+            await db.commit()
+            await db.refresh(user)
+        else:
             raise CustomHTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Your account was authenticated, but your profile could not be loaded.",
                 code="USER_PROFILE_NOT_FOUND"
             )
-        else:
-            user = User(id=user_id, email=credentials.email)
-            db.add(user)
-            await db.commit()
-            await db.refresh(user)
 
     return Token(access_token=access_token, token_type="bearer", user=UserResponse.model_validate(user))
 
@@ -253,3 +281,4 @@ async def login_token(
 @router.get("/me", response_model=UserResponse)
 async def get_me(current_user: User = Depends(get_current_user)):
     return UserResponse.model_validate(current_user)
+

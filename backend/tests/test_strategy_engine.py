@@ -88,9 +88,9 @@ def test_personality_and_style_injected():
         negotiation_parameters={},
         public_transcript=[],
     )
-    assert "SECTION 2 — PERSONALITY & NEGOTIATION STYLE" in prompt
+    assert "SECTION 2 — PERSONALITY & BEHAVIORAL STRATEGY" in prompt
     assert "Aggressive" in prompt
-    assert "Anchor firmly" in prompt
+    assert "anchor firmly" in prompt.lower()
 
 
 def test_private_boundaries_marked_confidential():

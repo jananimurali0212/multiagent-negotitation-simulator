@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useStore } from '../store/useStore';
 import { reportApi, negotiationApi, OutcomeReport as BackendOutcomeReport, ReportParticipant, ReportKeyEvent } from '../lib/api';
+import { downloadTranscriptFile } from '../utils/transcriptFormatter';
 import {
   Download,
   BarChart3,
@@ -138,78 +139,25 @@ export const OutcomeReportScreen: React.FC = () => {
         (selectedReportId && (r.id === selectedReportId || r.session_id === selectedReportId))
     );
 
-  const handleExport = (format: 'JSON' | 'TXT', report: any) => {
-    let content = '';
-    let mimeType = 'application/json';
-    let ext = 'json';
+  const handleDownloadTranscript = async (report: any) => {
+    if (!report) return;
 
-    if (format === 'JSON') {
-      content = JSON.stringify(report, null, 2);
-    } else {
-      mimeType = 'text/plain';
-      ext = 'txt';
-      content = `=====================================================
-NEGOTIATION OUTCOME REPORT
-=====================================================
-Scenario: ${report.scenario_title} (${report.scenario_id})
-Mode: ${report.mode === 'human-ai' ? 'Human vs AI Practice' : 'AI vs AI Simulation'}
-Outcome: ${report.outcome}
-Overall Score: ${report.overall_score ?? 85}/100
-Rounds Completed: ${report.rounds_completed}
-Duration: ${report.duration_seconds ? `${report.duration_seconds} seconds` : 'N/A'}
-Date: ${report.created_at || 'Recent'}
-
------------------------------------------------------
-1. INITIAL SCENARIO DATA (GROUND TRUTH)
------------------------------------------------------
-${JSON.stringify(report.initial_data || {}, null, 2)}
-
------------------------------------------------------
-2. SCENARIO COMPARATIVE ANALYSIS & METRICS
------------------------------------------------------
-${JSON.stringify(report.scenario_analysis || {}, null, 2)}
-
------------------------------------------------------
-3. PARTICIPANTS
------------------------------------------------------
-${(report.participants || []).map((p: any) => `- ${p.name} (${p.role}) [${p.is_human ? 'HUMAN' : 'AI'}]: ${p.personality}`).join('\n')}
-
------------------------------------------------------
-4. NEGOTIATION SUMMARY
------------------------------------------------------
-${report.summary || 'N/A'}
-
------------------------------------------------------
-5. FINAL AGREED TERMS
------------------------------------------------------
-${JSON.stringify(report.final_terms || {}, null, 2)}
-
------------------------------------------------------
-6. UNRESOLVED / DISPUTED TERMS
------------------------------------------------------
-${JSON.stringify(report.unresolved_terms || {}, null, 2)}
-
------------------------------------------------------
-7. FINAL ASSESSMENT & SYNTHESIS
------------------------------------------------------
-${report.final_assessment || 'N/A'}
-
------------------------------------------------------
-8. RECOMMENDATIONS & COACHING
------------------------------------------------------
-${report.recommendations || 'N/A'}
-=====================================================`;
+    let messages = report.messages || [];
+    if (!messages || messages.length === 0) {
+      const targetSessionId = report.session_id || report.id;
+      if (targetSessionId) {
+        try {
+          const sessionData = await negotiationApi.getSession(targetSessionId);
+          if (sessionData && sessionData.messages) {
+            messages = sessionData.messages;
+          }
+        } catch (err) {
+          console.warn('Transcript session fetch fallback:', err);
+        }
+      }
     }
 
-    const blob = new Blob([content], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    const downloadAnchor = document.createElement('a');
-    downloadAnchor.href = url;
-    downloadAnchor.download = `${report.scenario_id || 'negotiation'}-report-${report.id}.${ext}`;
-    document.body.appendChild(downloadAnchor);
-    downloadAnchor.click();
-    downloadAnchor.remove();
-    URL.revokeObjectURL(url);
+    downloadTranscriptFile(report, messages);
   };
 
   const getOutcomeBadge = (outcome: string) => {
@@ -317,18 +265,11 @@ ${report.recommendations || 'N/A'}
 
           <div className="flex items-center gap-2">
             <button
-              onClick={() => handleExport('TXT', activeReport)}
-              className="flex items-center gap-1.5 px-3.5 py-2 bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer shadow-xs"
-            >
-              <FileText size={13} className="text-slate-500" />
-              Export Summary (.txt)
-            </button>
-            <button
-              onClick={() => handleExport('JSON', activeReport)}
-              className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer shadow-xs"
+              onClick={() => handleDownloadTranscript(activeReport)}
+              className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer shadow-xs"
             >
               <Download size={13} />
-              Download JSON
+              Download Transcript
             </button>
           </div>
         </div>
@@ -1094,11 +1035,11 @@ ${report.recommendations || 'N/A'}
           </button>
 
           <button
-            onClick={() => handleExport('JSON', activeReport)}
-            className="flex items-center gap-2 px-5 py-2.5 bg-white border border-slate-200 hover:border-slate-300 text-slate-700 rounded-full text-xs font-bold transition-all shadow-xs"
+            onClick={() => handleDownloadTranscript(activeReport)}
+            className="flex items-center gap-2 px-5 py-2.5 bg-white border border-slate-200 hover:border-slate-300 text-slate-700 rounded-full text-xs font-bold transition-all shadow-xs cursor-pointer"
           >
             <Download size={14} />
-            Download Complete Audit Record (JSON)
+            Download Transcript
           </button>
         </div>
       </div>

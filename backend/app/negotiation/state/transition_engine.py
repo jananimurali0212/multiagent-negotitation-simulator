@@ -133,5 +133,9 @@ class StateTransitionEngine:
             if next_speaker_idx == 0:
                 state.current_round += 1
 
+            # Calculate round deterministically based on message count across all modes
+            calculated_round = (len(state.messages) // len(state.agents)) + 1
+            state.current_round = max(state.current_round, calculated_round)
+
         state.record_telemetry("state_transition_success", {"new_status": state.status, "round": state.current_round})
         return state

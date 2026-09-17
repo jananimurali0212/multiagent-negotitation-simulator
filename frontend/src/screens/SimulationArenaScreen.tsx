@@ -2,7 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/useStore';
 import { negotiationApi, apiRequest, TurnResultResponse, NegotiationStatus } from '../lib/api';
+import { downloadTranscriptFile } from '../utils/transcriptFormatter';
 import {
+  Download,
   Activity,
   Play,
   Pause,
@@ -305,7 +307,7 @@ export const SimulationArenaScreen: React.FC = () => {
         clearLoopTimer();
         timerRef.current = setTimeout(() => {
           executeNextStep();
-        }, 2500);
+        }, 600);
       }
     } catch (err: any) {
       console.error('[AI-AI][STEP_ERROR] Error executing step:', err);
@@ -322,7 +324,7 @@ export const SimulationArenaScreen: React.FC = () => {
       clearLoopTimer();
       timerRef.current = setTimeout(() => {
         executeNextStep();
-      }, 800);
+      }, 300);
     }
     return () => clearLoopTimer();
   }, [sessionId, isPaused, status]);
@@ -372,6 +374,30 @@ export const SimulationArenaScreen: React.FC = () => {
       setStatus('terminated');
       navigate(sessionId ? `/reports?session_id=${sessionId}` : '/reports');
     }
+  };
+
+  const handleDownloadTranscriptFromSimulation = () => {
+    downloadTranscriptFile(
+      {
+        id: sessionId,
+        session_id: sessionId,
+        scenario_id: selectedScenario?.id,
+        scenario_title: selectedScenario?.title,
+        mode: 'ai-ai',
+        rounds_completed: currentRound,
+        initial_data: scenarioData,
+        final_terms: currentOffer || {},
+        outcome: status === 'finished' ? 'Agreement Reached' : status === 'deadlock' ? 'Deadlock' : 'In Progress',
+        created_at: new Date().toISOString(),
+      },
+      messages.map((m) => ({
+        sender: m.sender,
+        role: m.role,
+        content: m.content,
+        round: m.round,
+        is_user: false,
+      }))
+    );
   };
 
   if (!selectedScenario) {
@@ -454,6 +480,16 @@ export const SimulationArenaScreen: React.FC = () => {
 
             {/* AI vs AI CONTROL BUTTONS: PAUSE AND STOP */}
             <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
+              {messages && messages.length > 0 && (
+                <button
+                  onClick={handleDownloadTranscriptFromSimulation}
+                  className="px-4 py-2.5 rounded-full bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-bold flex items-center gap-2 transition-all cursor-pointer shadow-xs"
+                >
+                  <Download size={13} />
+                  <span>Download Transcript</span>
+                </button>
+              )}
+
               {/* Pause / Resume Option */}
               <button
                 onClick={handleTogglePause}

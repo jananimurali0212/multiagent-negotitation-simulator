@@ -613,6 +613,7 @@ class OrchestratorService:
 
         speaker_idx = turn_count % len(ordered_agents)
         active_ai_agent = ordered_agents[speaker_idx]
+        session.current_round = (len(messages) // len(ordered_agents)) + 1 if ordered_agents else 1
 
         logger.info(
             f"[NEGOTIATION TURN ENTRY] session_id={session.id} | mode={session.mode} | "

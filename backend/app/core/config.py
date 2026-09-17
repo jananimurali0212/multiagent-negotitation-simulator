@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     SUPABASE_URL: str = "https://your-supabase-project.supabase.co"
     SUPABASE_ANON_KEY: str = ""
     SUPABASE_SERVICE_ROLE_KEY: str = ""
-    SUPABASE_JWT_SECRET: str = "your-supabase-jwt-secret"
+    SUPABASE_JWT_SECRET: str = "super-secret-supabase-jwt-secret-key-32bytes"
 
     # PostgreSQL Database URL (Supabase Pooler / Direct)
     DATABASE_URL: Optional[str] = "sqlite+aiosqlite:///./negotiation.db"
@@ -24,13 +24,13 @@ class Settings(BaseSettings):
     # LLM Settings & Provider Failover Configuration
     PRIMARY_LLM_PROVIDER: str = "gemini"
     GEMINI_API_KEY: str = ""
-    GEMINI_MODEL: str = "gemini-1.5-pro"
+    GEMINI_MODEL: str = "gemini-3.6-flash"
 
     GROQ_API_KEY: str = ""
     GROQ_MODEL: str = "llama-3.3-70b-versatile"
 
     OPENROUTER_API_KEY: str = ""
-    OPENROUTER_MODEL: str = "google/gemma-4-31b-it:free"
+    OPENROUTER_MODEL: str = "google/gemma-2-9b-it:free"
 
     FALLBACK_LLM_PROVIDER: str = "rule_fallback"
     FALLBACK_API_KEY: str = ""

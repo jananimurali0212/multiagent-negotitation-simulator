@@ -24,6 +24,12 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key or ""
         self.model_name = model_name or default_model
+        self._client: Optional[httpx.AsyncClient] = None
+
+    def _get_client(self, timeout: float) -> httpx.AsyncClient:
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(timeout=timeout)
+        return self._client
 
     def provider_name(self) -> str:
         return self._name
@@ -62,12 +68,16 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             headers["HTTP-Referer"] = "https://github.com/multi-agent-negotiation"
             headers["X-Title"] = settings.PROJECT_NAME
 
+        formatted_prompt = prompt
+        if "json" not in formatted_prompt.lower():
+            formatted_prompt = f"{formatted_prompt}\n\nPlease respond with a valid JSON object matching the required AgentDecision structure."
+
         payload = {
             "model": self.model_name,
             "messages": [
                 {
                     "role": "user",
-                    "content": prompt,
+                    "content": formatted_prompt,
                 }
             ],
             "temperature": 0.7,
@@ -77,8 +87,8 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         timeout = getattr(settings, "LLM_TIMEOUT_SECONDS", 15)
 
         try:
-            async with httpx.AsyncClient(timeout=float(timeout)) as client:
-                response = await client.post(endpoint, headers=headers, json=payload)
+            client = self._get_client(float(timeout))
+            response = await client.post(endpoint, headers=headers, json=payload)
 
             if response.status_code != 200:
                 err_text = response.text.upper()
@@ -124,17 +134,28 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                     is_transient=True,
                 )
 
-            # Strip markdown fence if present
             clean_text = content_text.strip()
+            if "<think>" in clean_text:
+                end_think = clean_text.rfind("</think>")
+                if end_think != -1:
+                    clean_text = clean_text[end_think + 8:].strip()
             if clean_text.startswith("```json"):
                 clean_text = clean_text[7:]
-            if clean_text.startswith("```"):
+            elif clean_text.startswith("```"):
                 clean_text = clean_text[3:]
             if clean_text.endswith("```"):
                 clean_text = clean_text[:-3]
             clean_text = clean_text.strip()
 
-            data = json.loads(clean_text)
+            try:
+                data = json.loads(clean_text)
+            except json.JSONDecodeError:
+                start = clean_text.find("{")
+                end = clean_text.rfind("}")
+                if start != -1 and end != -1 and end > start:
+                    data = json.loads(clean_text[start : end + 1])
+                else:
+                    raise
 
             usage = res_json.get("usage")
             if usage:
@@ -147,7 +168,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                         current_round=current_round,
                         payload={
                             "provider": self.provider_name(),
-                            "model": self.model_id,
+                            "model": self.model_name,
                             "prompt_tokens": usage.get("prompt_tokens", 0),
                             "completion_tokens": usage.get("completion_tokens", 0),
                             "total_tokens": usage.get("total_tokens", 0),
@@ -156,13 +177,38 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 except Exception as telem_err:
                     logger.debug(f"Telemetry emit skipped: {telem_err}")
 
+            offer_val = data.get("offer", {})
+            if offer_val is None:
+                offer_val = {}
+            elif not isinstance(offer_val, dict):
+                if isinstance(offer_val, (int, float)):
+                    offer_val = {"amount": offer_val}
+                elif isinstance(offer_val, str):
+                    offer_val = {"value": offer_val}
+                else:
+                    offer_val = {}
+
+            action_val = str(data.get("action", "counteroffer")).lower()
+            if action_val not in ["offer", "counteroffer", "accept", "reject", "deadlock"]:
+                action_val = "counteroffer"
+
+            try:
+                concession = float(data.get("concession_percentage", 5.0))
+            except (ValueError, TypeError):
+                concession = 5.0
+
+            try:
+                confidence = float(data.get("confidence_score", 0.9))
+            except (ValueError, TypeError):
+                confidence = 0.9
+
             return AgentDecision(
-                action=data.get("action", "counteroffer"),
-                message=data.get("message", "I present our revised proposal."),
-                rationale_summary=data.get("rationale_summary", "Evaluating trade-offs."),
-                offer=data.get("offer", {}),
-                concession_percentage=float(data.get("concession_percentage", 5.0)),
-                confidence_score=float(data.get("confidence_score", 0.9)),
+                action=action_val,
+                message=str(data.get("message", "I present our revised proposal.")),
+                rationale_summary=str(data.get("rationale_summary", "Evaluating trade-offs.")),
+                offer=offer_val,
+                concession_percentage=concession,
+                confidence_score=confidence,
             )
 
         except json.JSONDecodeError as e:
@@ -207,8 +253,8 @@ class GroqProvider(OpenAICompatibleProvider):
             name="groq",
             base_url="https://api.groq.com/openai/v1",
             api_key=api_key or settings.GROQ_API_KEY,
-            model_name=model_name or settings.GROQ_MODEL or "llama-3.3-70b-versatile",
-            default_model="llama-3.3-70b-versatile",
+            model_name=model_name or settings.GROQ_MODEL or "groq/compound",
+            default_model="groq/compound",
         )
 
 

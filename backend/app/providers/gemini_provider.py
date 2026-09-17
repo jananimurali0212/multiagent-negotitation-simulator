@@ -39,8 +39,12 @@ class GeminiProvider(BaseLLMProvider):
 
     @staticmethod
     def _clean_and_parse_json(text: str) -> dict:
-        """Cleans markdown fences and parses JSON payload safely."""
+        """Cleans markdown fences, thinking tags, and parses JSON payload safely."""
         clean_text = text.strip()
+        if "<think>" in clean_text:
+            end_think = clean_text.rfind("</think>")
+            if end_think != -1:
+                clean_text = clean_text[end_think + 8:].strip()
         if clean_text.startswith("```json"):
             clean_text = clean_text[7:]
         elif clean_text.startswith("```"):
@@ -52,7 +56,6 @@ class GeminiProvider(BaseLLMProvider):
         try:
             return json.loads(clean_text)
         except json.JSONDecodeError:
-            # Attempt to extract first complete JSON object from text
             start = clean_text.find("{")
             end = clean_text.rfind("}")
             if start != -1 and end != -1 and end > start:
@@ -77,9 +80,6 @@ class GeminiProvider(BaseLLMProvider):
             )
 
         models_to_try = [self.model_name]
-        for backup_model in ["gemini-3.1-flash-lite", "gemini-2.5-flash"]:
-            if backup_model not in models_to_try:
-                models_to_try.append(backup_model)
 
         last_error = None
         for model in models_to_try:
@@ -117,13 +117,38 @@ class GeminiProvider(BaseLLMProvider):
                         except Exception as telem_err:
                             logger.debug(f"Telemetry emit skipped: {telem_err}")
 
+                    offer_val = data.get("offer", {})
+                    if offer_val is None:
+                        offer_val = {}
+                    elif not isinstance(offer_val, dict):
+                        if isinstance(offer_val, (int, float)):
+                            offer_val = {"amount": offer_val}
+                        elif isinstance(offer_val, str):
+                            offer_val = {"value": offer_val}
+                        else:
+                            offer_val = {}
+
+                    action_val = str(data.get("action", "counteroffer")).lower()
+                    if action_val not in ["offer", "counteroffer", "accept", "reject", "deadlock"]:
+                        action_val = "counteroffer"
+
+                    try:
+                        concession = float(data.get("concession_percentage", 5.0))
+                    except (ValueError, TypeError):
+                        concession = 5.0
+
+                    try:
+                        confidence = float(data.get("confidence_score", 0.9))
+                    except (ValueError, TypeError):
+                        confidence = 0.9
+
                     return AgentDecision(
-                        action=data.get("action", "counteroffer"),
-                        message=data.get("message", "I present our current proposal."),
-                        rationale_summary=data.get("rationale_summary", "Evaluating trade-offs."),
-                        offer=data.get("offer", {}),
-                        concession_percentage=float(data.get("concession_percentage", 5.0)),
-                        confidence_score=float(data.get("confidence_score", 0.9)),
+                        action=action_val,
+                        message=str(data.get("message", "I present our current proposal.")),
+                        rationale_summary=str(data.get("rationale_summary", "Evaluating trade-offs.")),
+                        offer=offer_val,
+                        concession_percentage=concession,
+                        confidence_score=confidence,
                     )
                 else:
                     logger.warning(f"Empty response from Gemini model {model}, trying next if available")
@@ -143,8 +168,10 @@ class GeminiProvider(BaseLLMProvider):
                     or "RATE_LIMIT" in err_str
                     or status_code == 429
                 )
-                logger.warning(f"Gemini model {model} failed (quota={is_quota}): {e}. Trying fallback model if available.")
+                logger.warning(f"Gemini model {model} failed (quota={is_quota}): {e}.")
                 last_error = e
+                if is_quota:
+                    break
                 continue
 
         # If all candidate models in the chain failed

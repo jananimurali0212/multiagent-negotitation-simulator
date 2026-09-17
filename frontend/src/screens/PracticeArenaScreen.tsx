@@ -2,7 +2,9 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/useStore';
 import { negotiationApi, apiRequest, TurnResultResponse } from '../lib/api';
+import { downloadTranscriptFile } from '../utils/transcriptFormatter';
 import {
+  Download,
   Send,
   Sparkles,
   User,
@@ -667,6 +669,24 @@ export const PracticeArenaScreen: React.FC = () => {
     }
   };
 
+  const handleDownloadTranscriptFromArena = () => {
+    downloadTranscriptFile(
+      {
+        id: sessionId,
+        session_id: sessionId,
+        scenario_id: scenarioId,
+        scenario_title: selectedScenario?.title,
+        mode,
+        rounds_completed: currentRound,
+        initial_data: scenarioData,
+        final_terms: activeOffer || {},
+        outcome: status === 'finished' ? 'Agreement Reached' : status === 'deadlock' ? 'Deadlock' : 'In Progress',
+        created_at: new Date().toISOString(),
+      },
+      messages
+    );
+  };
+
   if (!selectedScenario) {
     return (
       <div className="min-h-screen bg-[#EEF1F8] flex items-center justify-center p-8">
@@ -746,6 +766,15 @@ export const PracticeArenaScreen: React.FC = () => {
 
           {/* Header Action Buttons */}
           <div className="flex items-center gap-2 shrink-0">
+            {messages && messages.length > 0 && (
+              <button
+                onClick={handleDownloadTranscriptFromArena}
+                className="px-3.5 py-2.5 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-xs"
+              >
+                <Download size={13} />
+                <span>Download Transcript</span>
+              </button>
+            )}
             <button
               onClick={handleStopNegotiation}
               className="px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold flex items-center gap-2 transition-all cursor-pointer shadow-md shadow-red-500/10 border-none"

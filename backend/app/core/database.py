@@ -49,6 +49,25 @@ AsyncSessionLocal = async_sessionmaker(
 )
 
 
+def fallback_to_sqlite():
+    """Switches active engine and sessionmaker to local SQLite fallback if remote DB is unreachable."""
+    global engine, AsyncSessionLocal
+    sqlite_url = "sqlite+aiosqlite:///./negotiation.db"
+    logger.warning("Remote database unreachable. Switching to local SQLite database fallback: negotiation.db")
+    engine = create_async_engine(
+        sqlite_url,
+        echo=False,
+        future=True,
+    )
+    AsyncSessionLocal = async_sessionmaker(
+        bind=engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+        autocommit=False,
+        autoflush=False,
+    )
+
+
 class Base(DeclarativeBase):
     pass
 

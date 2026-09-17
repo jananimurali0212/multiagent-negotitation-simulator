@@ -115,13 +115,15 @@ def test_decision_engine_agreement_reconstruction():
         confidence_score=1.0,
     )
     previous_messages = [
-        {"sender": "Employer", "role": "Hiring Manager", "content": "We offer ₹38,000 and 3 days remote.", "round": 1}
+        {"sender": "Employer", "role": "Hiring Manager", "content": "Initial salary offer is ₹30,000", "round": 1},
+        {"sender": "Employer", "role": "Hiring Manager", "content": "We offer ₹38,000 and 3 days remote.", "round": 2}
     ]
 
     is_term, final_terms, outcome, _ = DecisionEngine.evaluate_agreement(
         scenario_id="job-offer",
         latest_decision=decision,
         previous_messages=previous_messages,
+        current_round=2,
     )
     assert is_term is True
     assert outcome == "Agreement Reached"
