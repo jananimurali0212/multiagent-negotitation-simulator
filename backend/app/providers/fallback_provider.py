@@ -249,10 +249,10 @@ class FallbackRuleProvider(BaseLLMProvider):
             is_vendor = any(w in role_lower for w in ["sales", "vendor", "seller", "account", "sarah"])
             product = sc_data.get("product") or "the equipment/service"
             quantity = sc_data.get("quantity") or "the requested volume"
-            p_init = self._parse_numeric(sc_data.get("initial_vendor_price") or sc_data.get("current_vendor_price") or sc_data.get("initial_price") or sc_data.get("starting_price")) or 85000.0
-            p_target = self._parse_numeric(sc_data.get("target_price") or sc_data.get("target_budget")) or (p_init * 0.75)
-            p_max = self._parse_numeric(sc_data.get("maximum_budget") or sc_data.get("max_budget") or sc_data.get("budget_limit") or sc_data.get("maximum_price")) or (p_target * 1.20)
-            p_min = self._parse_numeric(sc_data.get("minimum_price_floor") or sc_data.get("minimum_acceptable_price") or sc_data.get("minimum_price") or sc_data.get("min_price") or sc_data.get("vendor_floor")) or (p_init * 0.70)
+            p_init = self._parse_numeric(sc_data.get("initial_vendor_price") or sc_data.get("current_vendor_price") or sc_data.get("initial_price")) or 85000.0
+            p_target = self._parse_numeric(sc_data.get("target_price")) or (p_init * 0.75)
+            p_max = self._parse_numeric(sc_data.get("maximum_budget") or sc_data.get("budget_limit")) or (p_target * 1.20)
+            p_min = self._parse_numeric(sc_data.get("minimum_price") or sc_data.get("min_price") or sc_data.get("vendor_floor")) or (p_init * 0.70)
             p_delivery = sc_data.get("delivery_requirements") or sc_data.get("delivery_requirement") or sc_data.get("delivery_timeline") or "standard timeline"
             p_quality = sc_data.get("quality_requirements") or sc_data.get("quality_requirement") or "standard SLA and warranty"
             p_terms = sc_data.get("payment_terms") or "Net-30"

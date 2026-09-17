@@ -19,7 +19,7 @@ except ImportError:
 class GeminiProvider(BaseLLMProvider):
     def __init__(self, api_key: Optional[str] = None, model_name: Optional[str] = None):
         self.api_key = api_key or settings.GEMINI_API_KEY
-        self.model_name = model_name or settings.GEMINI_MODEL or "gemini-3.6-flash"
+        self.model_name = model_name or settings.GEMINI_MODEL or "gemini-2.5-flash"
         self.client = None
 
         if GENAI_AVAILABLE and self.api_key:
@@ -80,7 +80,7 @@ class GeminiProvider(BaseLLMProvider):
             )
 
         models_to_try = [self.model_name]
-        for backup_model in ["gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash"]:
+        for backup_model in ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]:
             if backup_model not in models_to_try:
                 models_to_try.append(backup_model)
 

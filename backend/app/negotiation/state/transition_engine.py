@@ -2,7 +2,7 @@ import logging
 from typing import Dict, Any, Optional
 from app.schemas.arena import AgentDecision
 from app.negotiation.models.negotiation_state import NormalizedNegotiationState
-from app.negotiation.validation.validation_result import ValidationResult
+from app.negotiation.validation.validation_result import ValidationResult, ValidationErrorCategory
 from app.negotiation.state.state_machine import StateMachine
 
 logger = logging.getLogger("backend.state.transition")

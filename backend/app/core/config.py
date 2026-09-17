@@ -24,10 +24,10 @@ class Settings(BaseSettings):
     # LLM Settings & Provider Failover Configuration
     PRIMARY_LLM_PROVIDER: str = "gemini"
     GEMINI_API_KEY: str = ""
-    GEMINI_MODEL: str = "gemini-3.6-flash"
+    GEMINI_MODEL: str = "gemini-2.5-flash"
 
     GROQ_API_KEY: str = ""
-    GROQ_MODEL: str = "groq/compound"
+    GROQ_MODEL: str = "llama-3.3-70b-versatile"
 
     OPENROUTER_API_KEY: str = ""
     OPENROUTER_MODEL: str = "google/gemma-2-9b-it:free"

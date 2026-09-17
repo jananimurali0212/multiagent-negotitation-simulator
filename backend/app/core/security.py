@@ -23,17 +23,6 @@ def decode_supabase_jwt(token: str) -> Optional[dict]:
         )
         return payload
     except Exception as e:
-        if secret != settings.SECRET_KEY:
-            try:
-                payload = jwt.decode(
-                    token,
-                    settings.SECRET_KEY,
-                    algorithms=["HS256", "HS384", "HS512"],
-                    options={"verify_aud": False},
-                )
-                return payload
-            except Exception:
-                pass
         logger.warning(f"Supabase JWT signature verification note: {e}. Attempting unverified fallback decode.")
         try:
             payload = jwt.decode(
