@@ -19,7 +19,7 @@ except ImportError:
 class GeminiProvider(BaseLLMProvider):
     def __init__(self, api_key: Optional[str] = None, model_name: Optional[str] = None):
         self.api_key = api_key or settings.GEMINI_API_KEY
-        self.model_name = model_name or settings.GEMINI_MODEL or "gemini-2.5-flash"
+        self.model_name = model_name or settings.GEMINI_MODEL or "gemini-3.6-flash"
         self.client = None
 
         if GENAI_AVAILABLE and self.api_key:
@@ -80,9 +80,6 @@ class GeminiProvider(BaseLLMProvider):
             )
 
         models_to_try = [self.model_name]
-        for backup_model in ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]:
-            if backup_model not in models_to_try:
-                models_to_try.append(backup_model)
 
         last_error = None
         for model in models_to_try:
@@ -171,8 +168,10 @@ class GeminiProvider(BaseLLMProvider):
                     or "RATE_LIMIT" in err_str
                     or status_code == 429
                 )
-                logger.warning(f"Gemini model {model} failed (quota={is_quota}): {e}. Trying fallback model if available.")
+                logger.warning(f"Gemini model {model} failed (quota={is_quota}): {e}.")
                 last_error = e
+                if is_quota:
+                    break
                 continue
 
         # If all candidate models in the chain failed
